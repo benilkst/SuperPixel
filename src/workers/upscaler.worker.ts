@@ -479,13 +479,15 @@ async function initializeOnnxSession(
 
     // 4. Jika kedua opsi gagal, tawarkan memilih file model lokal
     if (!modelBuffer || modelBuffer.byteLength === 0) {
+      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
       return {
         success: false,
         provider: 'None',
-        isCorsError: true,
+        isCorsError: !isOffline,
         offerLocalModelFile: true,
-        errorReason:
-          'Gagal mengunduh model dari URL dan jalur cadangan (./models/realesr-general-x4v3.onnx). Silakan pilih file model .onnx dari perangkat atau gunakan mode Resize biasa.',
+        errorReason: isOffline
+          ? 'Perangkat sedang offline dan model AI belum tersimpan di cache perangkat. Sambungkan ke internet atau pilih file model .onnx lokal.'
+          : 'Gagal mengunduh model dari URL dan jalur cadangan (./models/realesr-general-x4v3.onnx). Silakan pilih file model .onnx dari perangkat atau gunakan mode Resize biasa.',
       };
     }
   }

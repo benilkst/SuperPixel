@@ -27,6 +27,8 @@ interface StateSelectProps {
   calculation: ScaleCalculation | null;
   customModelFile: File | null;
   onCustomModelFileChange: (file: File | null) => void;
+  isModelStored?: boolean;
+  onClearModelStorage?: () => void;
 }
 
 export const StateSelect: React.FC<StateSelectProps> = ({
@@ -46,6 +48,8 @@ export const StateSelect: React.FC<StateSelectProps> = ({
   calculation,
   customModelFile,
   onCustomModelFileChange,
+  isModelStored = false,
+  onClearModelStorage,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localModelInputRef = useRef<HTMLInputElement>(null);
@@ -322,6 +326,33 @@ export const StateSelect: React.FC<StateSelectProps> = ({
                 {customModelFile ? 'Ganti .onnx' : 'Pilih file .onnx lokal'}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Status Penyimpanan Model Offline */}
+        {mode === 'ai' && (
+          <div className="flex items-center justify-between px-1 pt-1 text-[11px] text-[var(--text-secondary)] border-t border-[var(--border-subtle)]">
+            <div className="flex items-center gap-1.5 truncate">
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                  isModelStored ? 'bg-emerald-500' : 'bg-amber-500'
+                }`}
+              />
+              <span className="truncate">
+                {isModelStored
+                  ? 'Model tersimpan di perangkat (4,6 MB)'
+                  : 'Belum tersimpan'}
+              </span>
+            </div>
+            {isModelStored && onClearModelStorage && (
+              <button
+                type="button"
+                onClick={onClearModelStorage}
+                className="underline hover:text-[var(--error)] text-[var(--text-secondary)] shrink-0 ml-2 cursor-pointer transition-colors"
+              >
+                Hapus data tersimpan
+              </button>
+            )}
           </div>
         )}
       </div>

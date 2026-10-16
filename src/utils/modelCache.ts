@@ -39,6 +39,34 @@ export async function clearModelCache(): Promise<void> {
 }
 
 /**
+ * Memeriksa status penyimpanan model offline beserta ukuran file.
+ */
+export async function checkModelStorageStatus(url: string): Promise<{
+  isCached: boolean;
+  sizeFormatted: string;
+}> {
+  if (typeof caches === 'undefined' || !url) {
+    return { isCached: false, sizeFormatted: '' };
+  }
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const match = await cache.match(url);
+    if (match) {
+      const blob = await match.blob();
+      const sizeBytes = blob.size;
+      const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(1).replace('.', ',');
+      return {
+        isCached: true,
+        sizeFormatted: `${sizeMB} MB`,
+      };
+    }
+  } catch (err) {
+    console.warn('Gagal membaca status cache model:', err);
+  }
+  return { isCached: false, sizeFormatted: '' };
+}
+
+/**
  * Mengunduh model ONNX dengan indikator kemajuan (progress) dan
  * menyimpannya ke Cache API browser agar tidak diunduh berulang kali.
  */

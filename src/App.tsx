@@ -18,6 +18,9 @@ import { MODEL_URL, DEFAULT_TILE_SIZE, DEFAULT_TILE_OVERLAP } from './constants/
 import { calculateOutputDimensions, ScaleCalculation } from './utils/canvasLimit';
 import { loadImageWithExifOrientation } from './utils/exif';
 import { UpscaleMode, WorkerOutgoingMessage } from './types/upscaler';
+import { registerSW } from 'virtual:pwa-register';
+import { usePWA, IOSInstallBanner } from './components/PWAInstallBanner';
+import { checkModelStorageStatus, clearModelCache, isModelCached } from './utils/modelCache';
 
 interface ProcessingResult {
   outputCanvas: HTMLCanvasElement;
@@ -91,13 +94,82 @@ export default function App() {
   const timerRef = useRef<number | null>(null);
   const lastBlobUrlRef = useRef<string | null>(null);
 
-  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'info') => {
+  // PWA Hook: Deteksi iOS Safari & Prompt Install Chromium/Android
+  const { isStandalone, isIOS, canInstall, promptInstall } = usePWA();
+  const [isModelStored, setIsModelStored] = useState<boolean>(false);
+
+  const showToast = (
+    message: string,
+    type: 'success' | 'info' | 'error' = 'info',
+    action?: { label: string; onAction: () => void; duration?: number }
+  ) => {
     const id = Date.now().toString() + Math.random().toString().slice(2, 6);
-    setToasts((prev) => [...prev, { id, message, type }]);
+    setToasts((prev) => [
+      ...prev,
+      {
+        id,
+        message,
+        type,
+        actionLabel: action?.label,
+        onAction: action?.onAction,
+      },
+    ]);
+    const duration = action?.duration ?? (action ? 12000 : 3500);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3500);
+    }, duration);
   };
+
+  // Status penyimpanan model offline
+  const refreshModelStorageStatus = async () => {
+    const status = await checkModelStorageStatus(modelUrl);
+    setIsModelStored(status.isCached);
+  };
+
+  useEffect(() => {
+    refreshModelStorageStatus();
+  }, [modelUrl]);
+
+  const handleClearModelStorage = async () => {
+    await clearModelCache();
+    setIsModelStored(false);
+    showToast('Data model tersimpan telah dihapus.', 'info');
+  };
+
+  const isProcessingRef = useRef(isProcessing);
+  useEffect(() => {
+    isProcessingRef.current = isProcessing;
+  }, [isProcessing]);
+
+  useEffect(() => {
+    // Upaya terbaik persistensi penyimpanan agar tidak dihapus otomatis oleh iOS
+    if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
+      navigator.storage.persist().catch(() => {});
+    }
+
+    // Registrasi PWA Service Worker (Workbox prompt mode)
+    try {
+      const updateSW = registerSW({
+        onNeedRefresh() {
+          showToast('Versi baru tersedia', 'info', {
+            label: 'Muat ulang',
+            onAction: () => {
+              updateSW(true);
+            },
+            duration: 15000,
+          });
+        },
+        onOfflineReady() {
+          console.log('SuperPixel siap dijalankan secara offline.');
+        },
+        onRegisterError(error: unknown) {
+          console.warn('Pendaftaran service worker PWA:', error);
+        },
+      });
+    } catch (err) {
+      console.warn('Gagal memuat registerSW:', err);
+    }
+  }, []);
 
   // Kalkulasi Dimensi Output dan Batas Memori
   const calculation: ScaleCalculation | null = useMemo(() => {
@@ -234,6 +306,21 @@ export default function App() {
       return;
     }
 
+    // Periksa status offline & ketersediaan model sebelum memulai
+    if (mode === 'ai' && !customModelFile) {
+      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+      const cached = await isModelCached(modelUrl);
+      if (!cached && !isOnline) {
+        setBannerNotice({
+          type: 'error',
+          title: 'Perangkat Sedang Offline',
+          message:
+            'Cache model AI belum tersimpan di perangkat dan koneksi internet tidak tersedia. Sambungkan ke internet untuk mengunduh model, gunakan mode Resize Biasa, atau pilih file model .onnx lokal.',
+        });
+        return;
+      }
+    }
+
     setIsProcessing(true);
     setResult(null);
     setBannerNotice(null);
@@ -368,6 +455,7 @@ export default function App() {
                 workerRef.current = null;
               }
               showToast('Gambar berhasil diperbesar!', 'success');
+              refreshModelStorageStatus();
             },
             'image/jpeg',
             0.92
@@ -539,10 +627,15 @@ export default function App() {
       <SoftHeader
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+        canInstall={canInstall}
+        onInstall={promptInstall}
       />
 
       {/* Konten Utama */}
       <main className="flex-1 max-w-md mx-auto w-full px-4 py-2 flex flex-col gap-4">
+        {/* Banner Petunjuk Pemasangan Safari iOS */}
+        <IOSInstallBanner isStandalone={isStandalone} isIOS={isIOS} />
+
         {/* Stepper 4 Langkah */}
         <SoftStepper currentStep={currentStep} />
 
@@ -585,6 +678,8 @@ export default function App() {
             calculation={calculation}
             customModelFile={customModelFile}
             onCustomModelFileChange={setCustomModelFile}
+            isModelStored={isModelStored}
+            onClearModelStorage={handleClearModelStorage}
           />
         )}
 
