@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-base: #EFE8DA;
+    --text-primary: #26302F;
+    --text-secondary: #5E655F;
+    --accent: #0E5C5E;
+    --accent-hover: #094749;
+    --accent-text: #FFFFFF;
+    --error: #B3372B;
+    --disabled-bg: #CFC8BB;
+    --disabled-text: #8C877C;
+    --shadow-light: rgba(255, 255, 255, 0.85);
+    --shadow-dark: rgba(150, 130, 100, 0.35);
+    --border-subtle: rgba(150, 130, 100, 0.18);
+  }
+
+  .dark {
+    --bg-base: #26241F;
+    --text-primary: #ECE6D8;
+    --text-secondary: #9E9789;
+    --accent: #3FA5A3;
+    --accent-hover: #4FB8B6;
+    --accent-text: #141310;
+    --error: #E05A4D;
+    --disabled-bg: #38352E;
+    --disabled-text: #6E695F;
+    --shadow-light: rgba(255, 255, 255, 0.04);
+    --shadow-dark: rgba(0, 0, 0, 0.55);
+    --border-subtle: rgba(255, 255, 255, 0.06);
+  }
+
+  html, body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+    margin: 0;
+    padding: 0;
+    min-height: 100dvh;
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Layer Neumorphism */
+.neu-base {
+  background-color: var(--bg-base);
+}
+
+.neu-raised-sm {
+  background-color: var(--bg-base);
+  box-shadow: 2px 2px 6px var(--shadow-dark), -2px -2px 6px var(--shadow-light);
+}
+
+.neu-raised {
+  background-color: var(--bg-base);
+  box-shadow: 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
+}
+
+.neu-raised-lg {
+  background-color: var(--bg-base);
+  box-shadow: 6px 6px 16px var(--shadow-dark), -6px -6px 16px var(--shadow-light);
+}
+
+.neu-inset {
+  background-color: var(--bg-base);
+  box-shadow: inset 3px 3px 6px var(--shadow-dark), inset -3px -3px 6px var(--shadow-light);
+}
+
+.neu-inset-deep {
+  background-color: var(--bg-base);
+  box-shadow: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light);
+}
+
+.neu-pressed {
+  background-color: var(--bg-base);
+  box-shadow: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light);
+}
+
+/* Accent pill button neumorphism */
+.neu-btn-primary {
+  background-color: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 3px 3px 8px var(--shadow-dark), -2px -2px 6px var(--shadow-light);
+  transition: transform 150ms ease, opacity 150ms ease;
+}
+
+.neu-btn-primary:active:not(:disabled) {
+  transform: scale(0.98);
+  box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.neu-btn-primary:disabled {
+  background-color: var(--disabled-bg);
+  color: var(--disabled-text);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.neu-btn-secondary {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  box-shadow: 3px 3px 8px var(--shadow-dark), -3px -3px 8px var(--shadow-light);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.neu-btn-secondary:active {
+  box-shadow: inset 2px 2px 5px var(--shadow-dark), inset -2px -2px 5px var(--shadow-light);
+}
+
+.font-tabular {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-feature-settings: 'tnum' 1;
+}

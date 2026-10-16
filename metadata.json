@@ -1,0 +1,6 @@
+{
+  "name": "SuperPixel - Upscaler Gambar Klien AI",
+  "description": "Upscaler gambar 100% di browser dengan pemrosesan tile hemat memori untuk iPhone dan desktop, WebGPU/WASM, perbandingan interaktif, dan ekspor resolusi tinggi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
