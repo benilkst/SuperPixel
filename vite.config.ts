@@ -116,6 +116,9 @@ export default defineConfig(() => {
     worker: {
       format: 'es' as const,
     },
+    optimizeDeps: {
+      exclude: ['onnxruntime-web'],
+    },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},

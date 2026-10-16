@@ -483,19 +483,92 @@ export default function App() {
         }
       };
 
-      worker.onerror = (err) => {
-        if (timerRef.current) clearInterval(timerRef.current);
-        console.error('Worker error:', err);
-        setIsProcessing(false);
-        setBannerNotice({
-          type: 'error',
-          title: 'Kendala Thread Web Worker',
-          message: 'Thread pemrosesan latar belakang menemui kendala. Beralih ke pemrosesan standar.',
-        });
-        if (workerRef.current) {
-          workerRef.current.terminate();
-          workerRef.current = null;
+      // Fungsi pemrosesan standar in-thread jika worker mengalami kendala
+      const executeMainThreadFallback = (reason?: string) => {
+        try {
+          if (timerRef.current) clearInterval(timerRef.current);
+          if (workerRef.current) {
+            workerRef.current.terminate();
+            workerRef.current = null;
+          }
+
+          setProgress({
+            currentTile: 1,
+            totalTiles: 1,
+            percentage: 60,
+            statusText: 'Beralih ke pemrosesan standar...',
+            phase: 'processing',
+          });
+
+          // Menggunakan Canvas 2D resolusi tinggi dengan interpolasi berkualitas
+          const outCanvas = document.createElement('canvas');
+          outCanvas.width = calculation.outputWidth;
+          outCanvas.height = calculation.outputHeight;
+          const outCtx = outCanvas.getContext('2d', { willReadFrequently: true });
+          if (!outCtx) throw new Error('Konteks kanvas fallback tidak tersedia');
+
+          outCtx.imageSmoothingEnabled = true;
+          outCtx.imageSmoothingQuality = 'high';
+          outCtx.drawImage(
+            loadedImage.canvas,
+            0,
+            0,
+            calculation.outputWidth,
+            calculation.outputHeight
+          );
+
+          outCanvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                setIsProcessing(false);
+                setBannerNotice({
+                  type: 'error',
+                  title: 'Gagal Memproses Gambar',
+                  message: 'Tidak dapat menghasilkan output kanvas.',
+                });
+                return;
+              }
+
+              const enhancedUrl = URL.createObjectURL(blob);
+              lastBlobUrlRef.current = enhancedUrl;
+              const elapsedMs = Math.round(performance.now() - startTime);
+
+              setResult({
+                outputCanvas: outCanvas,
+                enhancedUrl,
+                actualMode: 'algorithmic',
+                executionProvider: 'Kanvas Standar (High Quality)',
+                elapsedMs,
+                width: calculation.outputWidth,
+                height: calculation.outputHeight,
+              });
+
+              setIsProcessing(false);
+              showToast(
+                'Thread latar belakang dialihkan ke pemrosesan standar kanvas.',
+                'info'
+              );
+            },
+            'image/jpeg',
+            0.92
+          );
+        } catch (fallbackErr) {
+          setIsProcessing(false);
+          setBannerNotice({
+            type: 'error',
+            title: 'Kendala Pemrosesan',
+            message:
+              reason ||
+              (fallbackErr instanceof Error
+                ? fallbackErr.message
+                : 'Pemrosesan cadangan menemui kendala.'),
+          });
         }
+      };
+
+      worker.onerror = (err) => {
+        console.warn('Worker onerror event:', err);
+        executeMainThreadFallback();
       };
 
       // Kirim ArrayBuffer dengan transfer list untuk ZERO COPY
@@ -526,6 +599,48 @@ export default function App() {
       );
     } catch (err) {
       if (timerRef.current) clearInterval(timerRef.current);
+      console.warn('Gagal menginisialisasi worker, beralih ke kanvas standar:', err);
+      try {
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = calculation.outputWidth;
+        outCanvas.height = calculation.outputHeight;
+        const outCtx = outCanvas.getContext('2d', { willReadFrequently: true });
+        if (outCtx) {
+          outCtx.imageSmoothingEnabled = true;
+          outCtx.imageSmoothingQuality = 'high';
+          outCtx.drawImage(
+            loadedImage.canvas,
+            0,
+            0,
+            calculation.outputWidth,
+            calculation.outputHeight
+          );
+          outCanvas.toBlob(
+            (blob) => {
+              if (blob) {
+                const enhancedUrl = URL.createObjectURL(blob);
+                lastBlobUrlRef.current = enhancedUrl;
+                setResult({
+                  outputCanvas: outCanvas,
+                  enhancedUrl,
+                  actualMode: 'algorithmic',
+                  executionProvider: 'Kanvas Standar (High Quality)',
+                  elapsedMs: Math.round(performance.now() - startTime),
+                  width: calculation.outputWidth,
+                  height: calculation.outputHeight,
+                });
+                setIsProcessing(false);
+                showToast('Pemrosesan selesai dengan kanvas standar.', 'info');
+              } else {
+                setIsProcessing(false);
+              }
+            },
+            'image/jpeg',
+            0.92
+          );
+          return;
+        }
+      } catch {}
       setIsProcessing(false);
       setBannerNotice({
         type: 'error',

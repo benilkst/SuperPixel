@@ -28,7 +28,12 @@ try {
     let basePrefix = '/';
     if (typeof import.meta !== 'undefined' && import.meta.env && typeof import.meta.env.BASE_URL === 'string') {
       basePrefix = import.meta.env.BASE_URL;
-    } else if (typeof self !== 'undefined' && self.location && self.location.origin) {
+    } else if (
+      typeof self !== 'undefined' &&
+      self.location &&
+      self.location.origin &&
+      self.location.origin !== 'null'
+    ) {
       basePrefix = `${self.location.origin}/`;
     }
     if (!basePrefix.endsWith('/')) {
