@@ -6,6 +6,7 @@
 // Model default: realesr-general-x4v3.onnx (SRVGGNetCompact, 4.6 MB, BSD-3)
 // Kontrak: input float32 [1,3,h,w] RGB [0..1] NCHW -> output float32 [1,3,4h,4w] [0..1]
 export const MODEL_URL: string = "https://huggingface.co/jonathanst29/tinier-upscale-models/resolve/main/realesr-general-x4v3.onnx";
+export const FALLBACK_MODEL_URL: string = "./models/realesr-general-x4v3.onnx";
 
 /**
  * Batasan Memori dan Ukuran Canvas Safari iOS (iPhone SE 2020: RAM 3GB).

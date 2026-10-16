@@ -51,6 +51,7 @@ export type WorkerOutgoingMessage =
         reason: string;
         isCorsError?: boolean;
         modelName?: string;
+        offerLocalModelFile?: boolean;
       };
     }
   | {

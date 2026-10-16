@@ -5,7 +5,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    base: './',
+    base: '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
@@ -14,9 +14,6 @@ export default defineConfig(() => {
     },
     worker: {
       format: 'es' as const,
-    },
-    optimizeDeps: {
-      exclude: ['@google/genai'],
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

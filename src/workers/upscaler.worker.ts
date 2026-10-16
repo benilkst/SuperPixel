@@ -16,34 +16,26 @@ import {
 } from '../utils/bicubicFallback';
 
 // ============================================================================
-// KONFIGURASI ONNX RUNTIME UNTUK GITHUB PAGES & SAFARI (STATIC HOSTING)
+// KONFIGURASI ONNX RUNTIME UNTUK VERCEL & SAFARI (STATIC HOSTING)
 // ============================================================================
-const ONNX_VERSION = '1.30.0';
-
 try {
   if (typeof ort !== 'undefined' && ort.env && ort.env.wasm) {
-    // GitHub Pages tidak dapat mengirim header COOP/COEP, gunakan numThreads = 1
+    // Pertahankan numThreads = 1 (lingkungan tanpa COOP/COEP)
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.proxy = false;
 
-    // Tentukan path ke file WASM lokal (dari folder public/dist) atau CDN fallback
-    // Di Web Worker, self.location.href merujuk ke lokasi worker
-    let localWasmPrefix = './';
-    if (typeof self !== 'undefined' && self.location && self.location.href) {
-      try {
-        const workerUrl = new URL(self.location.href);
-        // Jika worker berada di subfolder seperti /assets/, arahkan ke root aplikasi
-        localWasmPrefix = new URL('../', workerUrl).href;
-      } catch {
-        localWasmPrefix = './';
-      }
+    // Tentukan path ke file WASM lokal yang disajikan di akar domain ('/')
+    let basePrefix = '/';
+    if (typeof import.meta !== 'undefined' && import.meta.env && typeof import.meta.env.BASE_URL === 'string') {
+      basePrefix = import.meta.env.BASE_URL;
+    } else if (typeof self !== 'undefined' && self.location && self.location.origin) {
+      basePrefix = `${self.location.origin}/`;
+    }
+    if (!basePrefix.endsWith('/')) {
+      basePrefix += '/';
     }
 
-    // Gunakan override path lokal dengan fallback CDN resmi
-    ort.env.wasm.wasmPaths = {
-      wasm: `${localWasmPrefix}ort-wasm-simd-threaded.wasm`,
-      mjs: `${localWasmPrefix}ort-wasm-simd-threaded.mjs`,
-    };
+    ort.env.wasm.wasmPaths = basePrefix;
   }
 } catch (e) {
   console.warn('Konfigurasi ort.env gagal:', e);
@@ -140,6 +132,7 @@ async function runUpscalePipeline(
             sessionInit.errorReason ||
             'Model AI dialihkan ke mode Algoritmik Hemat Memori (Bicubic + Unsharp Mask).',
           isCorsError: sessionInit.isCorsError,
+          offerLocalModelFile: sessionInit.offerLocalModelFile,
           modelName: 'realesr-general-x4v3.onnx',
         },
       } as WorkerOutgoingMessage);
@@ -407,6 +400,7 @@ async function initializeOnnxSession(
   provider: string;
   errorReason?: string;
   isCorsError?: boolean;
+  offerLocalModelFile?: boolean;
 }> {
   let modelBuffer: ArrayBuffer | null = config.customModelBuffer || null;
 
@@ -420,6 +414,7 @@ async function initializeOnnxSession(
   const hasSharedArrayBuffer = typeof SharedArrayBuffer !== 'undefined';
 
   if (!modelBuffer && config.modelUrl && config.modelUrl.trim().length > 0) {
+    // 1. Coba dari cache browser
     if (typeof caches !== 'undefined') {
       try {
         const cache = await caches.open('superpixel-onnx-v1');
@@ -432,43 +427,66 @@ async function initializeOnnxSession(
       }
     }
 
+    // 2. Coba unduh dari MODEL_URL utama
     if (!modelBuffer) {
       try {
         const resp = await fetch(config.modelUrl, {
           mode: 'cors',
           cache: 'no-store',
         });
-        if (!resp.ok) {
-          return {
-            success: false,
-            provider: 'None',
-            isCorsError: true,
-            errorReason: `Gagal mengunduh model dari URL (HTTP ${resp.status}). Kemungkinan dibatasi oleh CORS. Anda dapat mengunggah file .onnx langsung dari galeri/file lokal.`,
-          };
-        }
-        modelBuffer = await resp.arrayBuffer();
+        if (resp.ok) {
+          modelBuffer = await resp.arrayBuffer();
 
-        if (typeof caches !== 'undefined') {
-          try {
-            const cache = await caches.open('superpixel-onnx-v1');
-            const cacheResp = new Response(modelBuffer.slice(0), {
-              headers: { 'Content-Type': 'application/octet-stream' },
-            });
-            await cache.put(config.modelUrl, cacheResp);
-          } catch {
-            // Abaikan kegagalan cache
+          if (typeof caches !== 'undefined') {
+            try {
+              const cache = await caches.open('superpixel-onnx-v1');
+              const cacheResp = new Response(modelBuffer.slice(0), {
+                headers: { 'Content-Type': 'application/octet-stream' },
+              });
+              await cache.put(config.modelUrl, cacheResp);
+            } catch {
+              // Abaikan kegagalan cache
+            }
           }
         }
-      } catch (fetchErr) {
-        return {
-          success: false,
-          provider: 'None',
-          isCorsError: true,
-          errorReason: `Koneksi ke URL model terhambat kebijakan CORS browser: ${String(
-            fetchErr
-          )}. Silakan gunakan mode Algoritmik atau unggah file .onnx dari perangkat.`,
-        };
+      } catch (primaryFetchErr) {
+        console.warn('Gagal mengunduh model dari URL utama:', primaryFetchErr);
       }
+    }
+
+    // 3. Opsi cadangan: jika pemuatan dari URL gagal, coba ./models/realesr-general-x4v3.onnx
+    if (!modelBuffer) {
+      const fallbackUrls = [
+        './models/realesr-general-x4v3.onnx',
+        '/models/realesr-general-x4v3.onnx',
+      ];
+      for (const fallbackUrl of fallbackUrls) {
+        try {
+          const resp = await fetch(fallbackUrl);
+          if (resp.ok) {
+            const buf = await resp.arrayBuffer();
+            if (buf && buf.byteLength > 0) {
+              modelBuffer = buf;
+              console.log(`Model berhasil dimuat dari cadangan: ${fallbackUrl}`);
+              break;
+            }
+          }
+        } catch {
+          // Lanjut ke fallback berikutnya
+        }
+      }
+    }
+
+    // 4. Jika kedua opsi gagal, tawarkan memilih file model lokal
+    if (!modelBuffer || modelBuffer.byteLength === 0) {
+      return {
+        success: false,
+        provider: 'None',
+        isCorsError: true,
+        offerLocalModelFile: true,
+        errorReason:
+          'Gagal mengunduh model dari URL dan jalur cadangan (./models/realesr-general-x4v3.onnx). Silakan pilih file model .onnx dari perangkat atau gunakan mode Resize biasa.',
+      };
     }
   }
 
@@ -476,7 +494,8 @@ async function initializeOnnxSession(
     return {
       success: false,
       provider: 'None',
-      errorReason: 'File model ONNX belum tersedia.',
+      offerLocalModelFile: true,
+      errorReason: 'File model ONNX belum tersedia. Silakan pilih file model .onnx dari perangkat.',
     };
   }
 

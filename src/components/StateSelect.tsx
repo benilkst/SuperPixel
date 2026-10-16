@@ -292,6 +292,38 @@ export const StateSelect: React.FC<StateSelectProps> = ({
             Resize Biasa
           </button>
         </div>
+
+        {mode === 'ai' && (
+          <div className="flex items-center justify-between px-1 text-[11px] text-[var(--text-secondary)]">
+            <span className="truncate pr-2">
+              {customModelFile ? (
+                <span className="text-[var(--accent)] font-medium">
+                  Model lokal: {customModelFile.name}
+                </span>
+              ) : (
+                <span>Sumber: URL Online / ./models/</span>
+              )}
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              {customModelFile && (
+                <button
+                  type="button"
+                  onClick={() => onCustomModelFileChange(null)}
+                  className="underline hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                  Reset
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => localModelInputRef.current?.click()}
+                className="underline hover:text-[var(--accent)] cursor-pointer"
+              >
+                {customModelFile ? 'Ganti .onnx' : 'Pilih file .onnx lokal'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Rangkuman Lembar Data Sebelum Eksekusi */}

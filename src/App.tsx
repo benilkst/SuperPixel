@@ -289,11 +289,15 @@ export default function App() {
           });
         } else if (msg.type === 'MODE_FALLBACK') {
           const isCors = msg.payload.isCorsError || msg.payload.reason.includes('CORS');
+          const shouldOfferLocal =
+            msg.payload.offerLocalModelFile ||
+            isCors ||
+            msg.payload.reason.includes('.onnx');
           setBannerNotice({
             type: 'teal',
-            title: isCors ? 'Kendala CORS saat Mengunduh Model' : 'Mode Algoritmik Aktif',
+            title: isCors ? 'Pemuatan Model Gagal (Cadangan Aktif)' : 'Mode Algoritmik Aktif',
             message: msg.payload.reason,
-            actionButton: isCors ? (
+            actionButton: shouldOfferLocal ? (
               <label className="h-8 px-3 rounded-full neu-btn-primary text-[11px] font-bold cursor-pointer inline-flex items-center justify-center">
                 <span>Pilih File .onnx dari Perangkat</span>
                 <input
