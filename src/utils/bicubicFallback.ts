@@ -151,7 +151,7 @@ export function applyUnsharpMaskInPlace(
   w: number,
   h: number,
   scratchBuffer: Uint8ClampedArray,
-  amount: number = 0.4
+  amount: number = 0.85
 ): void {
   // 1. Simpan salinan blur 3x3 ke scratchBuffer (integer arithmetic, hemat daya baterai iPhone)
   // Kernel: [1 2 1; 2 4 2; 1 2 1] / 16

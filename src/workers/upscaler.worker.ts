@@ -226,7 +226,7 @@ async function runUpscalePipeline(
             dh,
             scratchDestTile
           );
-          applyUnsharpMaskInPlace(scratchDestTile, dw, dh, scratchBlurTile, 0.4);
+          applyUnsharpMaskInPlace(scratchDestTile, dw, dh, scratchBlurTile, 0.85);
           usedTileBuffer = scratchDestTile;
         }
       } else {
@@ -238,7 +238,7 @@ async function runUpscalePipeline(
           dh,
           scratchDestTile
         );
-        applyUnsharpMaskInPlace(scratchDestTile, dw, dh, scratchBlurTile, 0.42);
+        applyUnsharpMaskInPlace(scratchDestTile, dw, dh, scratchBlurTile, 0.85);
         usedTileBuffer = scratchDestTile;
       }
 
@@ -506,9 +506,8 @@ async function initializeOnnxSession(
     };
   }
 
-  // Coba WebGPU hanya jika didukung dan bukan Safari iOS
+  // 1. Coba WebGPU jika didukung perangkat (termasuk Safari 18+ / browser modern)
   const canTryWebGPU =
-    !isAppleOrSafari &&
     typeof navigator !== 'undefined' &&
     'gpu' in navigator &&
     !!(navigator as unknown as { gpu?: unknown }).gpu;
@@ -520,29 +519,24 @@ async function initializeOnnxSession(
         graphOptimizationLevel: 'all',
       });
       return { success: true, session, provider: 'WebGPU (Akselerasi GPU)' };
-    } catch {
+    } catch (gpuErr) {
+      console.warn('WebGPU init tidak tersedia, beralih ke WASM:', gpuErr);
       // Lanjut ke WASM
     }
   }
 
-  // Jika di Safari iOS tanpa SharedArrayBuffer, onnxruntime WASM threading tidak stabil
-  if (isAppleOrSafari && !hasSharedArrayBuffer) {
-    return {
-      success: false,
-      provider: 'None',
-      errorReason:
-        'Safari iOS membatasi thread WASM (tanpa SharedArrayBuffer). Beralih ke Mode Algoritmik Hemat Memori (Bicubic + Unsharp Mask) yang mulus dan cepat.',
-    };
-  }
-
-  // Coba WASM
+  // 2. Coba WASM Single-Thread (Berjalan penuh di Safari iOS tanpa SharedArrayBuffer)
   try {
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.proxy = false;
+
     const session = await ort.InferenceSession.create(modelBuffer, {
       executionProviders: ['wasm'],
-      graphOptimizationLevel: 'basic',
+      graphOptimizationLevel: 'all',
     });
-    return { success: true, session, provider: 'WASM (CPU)' };
+    return { success: true, session, provider: 'WASM AI (Real-ESRGAN x4)' };
   } catch (wasmErr) {
+    console.warn('WASM engine init gagal:', wasmErr);
     return {
       success: false,
       provider: 'None',
