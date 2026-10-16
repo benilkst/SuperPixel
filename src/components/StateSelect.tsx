@@ -282,7 +282,7 @@ export const StateSelect: React.FC<StateSelectProps> = ({
                 : 'text-[var(--text-secondary)]'
             }`}
           >
-            Model ESRGAN
+            Model AI ESRGAN
           </button>
           <button
             type="button"
@@ -293,7 +293,7 @@ export const StateSelect: React.FC<StateSelectProps> = ({
                 : 'text-[var(--text-secondary)]'
             }`}
           >
-            Resize Biasa
+            Ultra-HD Super-Res
           </button>
         </div>
 

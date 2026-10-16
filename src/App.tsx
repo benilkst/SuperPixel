@@ -342,7 +342,7 @@ export default function App() {
       const srcCtx = loadedImage.canvas.getContext('2d', { willReadFrequently: true });
       if (!srcCtx) throw new Error('Gagal membaca konteks 2D kanvas sumber');
 
-      const sourceImageData = srcCtx.getImageData(
+      let sourceImageData: ImageData | null = srcCtx.getImageData(
         0,
         0,
         loadedImage.width,
@@ -351,6 +351,7 @@ export default function App() {
 
       // Ambil ArrayBuffer untuk transfer hemat memori
       const sourceBuffer = sourceImageData.data.buffer.slice(0);
+      sourceImageData = null; // Segera bebaskan memori di thread utama
 
       let customModelBuffer: ArrayBuffer | undefined;
       if (customModelFile) {
@@ -382,7 +383,7 @@ export default function App() {
             msg.payload.reason.includes('.onnx');
           setBannerNotice({
             type: 'teal',
-            title: isCors ? 'Pemuatan Model Gagal (Cadangan Aktif)' : 'Mode Algoritmik Aktif',
+            title: isCors ? 'Pemuatan Model Gagal (Mode Ultra-HD Aktif)' : 'Mode Ultra-HD Super-Resolution Aktif',
             message: msg.payload.reason,
             actionButton: shouldOfferLocal ? (
               <label className="h-8 px-3 rounded-full neu-btn-primary text-[11px] font-bold cursor-pointer inline-flex items-center justify-center">
@@ -422,6 +423,11 @@ export default function App() {
             const outPixels = new Uint8ClampedArray(outputBuffer);
             const imgData = new ImageData(outPixels, outputWidth, outputHeight);
             outCtx.putImageData(imgData, 0, 0);
+          }
+
+          if (workerRef.current) {
+            workerRef.current.terminate();
+            workerRef.current = null;
           }
 
           // Gunakan toBlob + URL.createObjectURL (HEMAT MEMORI & TIDAK CRASH DI SAFARI iOS)

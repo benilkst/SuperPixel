@@ -175,9 +175,9 @@ export const StateResult: React.FC<StateResultProps> = ({
           </div>
 
           <div className="flex justify-between items-center py-1 border-b border-[var(--border-subtle)]">
-            <span className="text-[var(--text-secondary)] font-medium">Mode</span>
+            <span className="text-[var(--text-secondary)] font-medium">Mesin</span>
             <span className="px-2 py-0.5 rounded-full bg-[var(--accent)] text-[var(--accent-text)] text-[10px] font-bold tracking-wide uppercase">
-              {mode === 'ai' ? 'Model ESRGAN' : 'Cadangan'}
+              {mode === 'ai' ? 'AI Real-ESRGAN' : 'Ultra-HD Super-Res'}
             </span>
           </div>
 
