@@ -6,70 +6,56 @@
 import React from 'react';
 
 interface SoftActionBarProps {
-  appState: 'select' | 'process' | 'result';
+  currentStep: 1 | 2 | 3 | 4;
+  isProcessing: boolean;
   scale: 2 | 4;
   downloadFormat: 'jpeg' | 'png';
-  isProcessing: boolean;
-  canStart: boolean;
-  onStart: () => void;
+  hasImage: boolean;
+  onStartProcess: () => void;
   onDownload: () => void;
 }
 
 export const SoftActionBar: React.FC<SoftActionBarProps> = ({
-  appState,
+  currentStep,
+  isProcessing,
   scale,
   downloadFormat,
-  isProcessing,
-  canStart,
-  onStart,
+  hasImage,
+  onStartProcess,
   onDownload,
 }) => {
-  // Hanya tampilkan tombol aksi utama jika di state 'select' atau 'result'
-  if (appState === 'process') {
-    return null;
-  }
-
   return (
-    <div className="w-full shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] transition-colors">
+    <footer className="w-full px-4 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] shrink-0 bg-gradient-to-t from-[var(--base)] via-[var(--base)] to-transparent">
       <div className="max-w-md mx-auto w-full">
-        {appState === 'select' && (
+        {currentStep === 1 || currentStep === 2 ? (
           <button
             type="button"
-            onClick={onStart}
-            disabled={!canStart || isProcessing}
-            className="w-full h-12 rounded-full neu-btn-primary font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 cursor-pointer"
+            disabled={!hasImage || isProcessing}
+            onClick={onStartProcess}
+            className={`w-full h-12 rounded-full neu-btn-primary text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer ${
+              !hasImage || isProcessing ? 'opacity-40 pointer-events-none' : ''
+            }`}
           >
-            {isProcessing ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                <span>Memproses...</span>
-              </>
-            ) : (
-              <span>Mulai Perbesar (x{scale})</span>
-            )}
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+            <span>Mulai Perbesar (x{scale})</span>
           </button>
-        )}
-
-        {appState === 'result' && (
+        ) : currentStep === 4 ? (
           <button
             type="button"
             onClick={onDownload}
-            className="w-full h-12 rounded-full neu-btn-primary font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full h-12 rounded-full neu-btn-primary text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg animate-pulse"
           >
-            <svg
-              className="w-4 h-4 stroke-[2.5]"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-            >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            <span>Unduh Hasil ({downloadFormat.toUpperCase()})</span>
+            <span>Unduh Berkas {downloadFormat.toUpperCase()}</span>
           </button>
-        )}
+        ) : null}
       </div>
-    </div>
+    </footer>
   );
 };

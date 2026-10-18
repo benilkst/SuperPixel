@@ -53,12 +53,10 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-          globIgnores: ['**/node_modules/**/*', '**/*.wasm', '**/*.onnx', 'models/**/*'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+          globIgnores: ['**/node_modules/**/*', '**/*.wasm', '**/models/**/*'],
           runtimeCaching: [
             {
-              // File WASM ONNX Runtime Web dari domain sendiri (bukan CDN)
-              // CacheFirst pada cache terpisah, maxEntries kecil
               urlPattern: /\.(?:wasm|asyncify\.wasm|jsep\.wasm)$/i,
               handler: 'CacheFirst',
               options: {
@@ -120,6 +118,8 @@ export default defineConfig(() => {
       exclude: ['onnxruntime-web'],
     },
     server: {
+      port: 3000,
+      host: '0.0.0.0',
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },

@@ -41,8 +41,8 @@ export type WorkerOutgoingMessage =
         currentTile: number;
         totalTiles: number;
         percentage: number;
-        phase: 'loading_model' | 'processing_tiles' | 'blending' | 'complete';
         statusText: string;
+        phase: string;
       };
     }
   | {
@@ -50,8 +50,8 @@ export type WorkerOutgoingMessage =
       payload: {
         reason: string;
         isCorsError?: boolean;
-        modelName?: string;
         offerLocalModelFile?: boolean;
+        modelName?: string;
       };
     }
   | {

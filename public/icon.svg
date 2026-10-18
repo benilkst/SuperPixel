@@ -1,42 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!-- Full-bleed background cream -->
-  <rect width="512" height="512" fill="#EFE8DA" />
-
-  <!-- Left: Coarse 2x2 grid (representing low resolution) -->
-  <g fill="#0E5C5E">
-    <rect x="108" y="189" width="62" height="62" rx="10" />
-    <rect x="180" y="189" width="62" height="62" rx="10" />
-    <rect x="108" y="261" width="62" height="62" rx="10" />
-    <rect x="180" y="261" width="62" height="62" rx="10" />
-  </g>
-
-  <!-- Transition chevron indicator -->
-  <path d="M 252 248 L 260 256 L 252 264" fill="none" stroke="#0E5C5E" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
-
-  <!-- Right: Fine 4x4 grid (representing upscaled high resolution) -->
-  <g fill="#0E5C5E">
-    <!-- Row 1 -->
-    <rect x="270" y="189" width="29" height="29" rx="5" />
-    <rect x="305" y="189" width="29" height="29" rx="5" />
-    <rect x="340" y="189" width="29" height="29" rx="5" />
-    <rect x="375" y="189" width="29" height="29" rx="5" />
-
-    <!-- Row 2 -->
-    <rect x="270" y="224" width="29" height="29" rx="5" />
-    <rect x="305" y="224" width="29" height="29" rx="5" />
-    <rect x="340" y="224" width="29" height="29" rx="5" />
-    <rect x="375" y="224" width="29" height="29" rx="5" />
-
-    <!-- Row 3 -->
-    <rect x="270" y="259" width="29" height="29" rx="5" />
-    <rect x="305" y="259" width="29" height="29" rx="5" />
-    <rect x="340" y="259" width="29" height="29" rx="5" />
-    <rect x="375" y="259" width="29" height="29" rx="5" />
-
-    <!-- Row 4 -->
-    <rect x="270" y="294" width="29" height="29" rx="5" />
-    <rect x="305" y="294" width="29" height="29" rx="5" />
-    <rect x="340" y="294" width="29" height="29" rx="5" />
-    <rect x="375" y="294" width="29" height="29" rx="5" />
+  <rect width="512" height="512" fill="#EFE8DA"/>
+  <g transform="translate(106, 106)">
+    <rect x="0" y="0" width="140" height="140" rx="16" fill="#0E5C5E"/>
+    <rect x="0" y="160" width="140" height="140" rx="16" fill="#0E5C5E"/>
+    <rect x="160" y="0" width="65" height="65" rx="8" fill="#0E5C5E"/>
+    <rect x="235" y="0" width="65" height="65" rx="8" fill="#0E5C5E"/>
+    <rect x="160" y="75" width="65" height="65" rx="8" fill="#0E5C5E"/>
+    <rect x="235" y="75" width="65" height="65" rx="8" fill="#0E5C5E"/>
+    <rect x="160" y="160" width="65" height="65" rx="8" fill="#0E5C5E"/>
+    <rect x="235" y="160" width="65" height="65" rx="8" fill="#0E5C5E"/>
+    <rect x="160" y="235" width="65" height="65" rx="8" fill="#0E5C5E"/>
+    <rect x="235" y="235" width="65" height="65" rx="8" fill="#0E5C5E"/>
   </g>
 </svg>

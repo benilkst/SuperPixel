@@ -37,7 +37,7 @@ export const SoftToast: React.FC<SoftToastProps> = ({ toasts, onDismiss }) => {
                   ? 'bg-emerald-500'
                   : 'bg-[var(--accent)]'
               }`}
-            ></span>
+            />
             <span className="leading-snug">{toast.message}</span>
           </div>
 

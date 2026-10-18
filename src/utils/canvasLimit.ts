@@ -8,6 +8,7 @@ import {
   MAX_4K_HEIGHT,
   SAFARI_IOS_MAX_CANVAS_PIXELS,
   SAFARI_SAFE_MAX_DIMENSION,
+  MAX_EXTREME_DIMENSION,
 } from '../constants/config';
 
 export interface ScaleCalculation {
@@ -20,6 +21,7 @@ export interface ScaleCalculation {
   totalPixels: number;
   isCappedBy4K: boolean;
   exceedsSafariLimit: boolean;
+  isExtremeResolution: boolean;
   warningMessage?: string;
   tilesX: number;
   tilesY: number;
@@ -29,15 +31,16 @@ export interface ScaleCalculation {
 
 /**
  * Menghitung resolusi output yang aman, batasan 4K, batasan Safari iOS,
- * serta jumlah petak pemrosesan.
+ * serta mode resolusi ekstrem (bypass batas).
  */
 export function calculateOutputDimensions(
   inputWidth: number,
   inputHeight: number,
   requestedScale: 2 | 4,
   limit4K: boolean,
-  tileSize: number = 128,
-  overlap: number = 16,
+  allowExtremeResolution: boolean = false,
+  tileSize: number = 256,
+  overlap: number = 24,
   isAIMode: boolean = true
 ): ScaleCalculation {
   let targetWidth = inputWidth * requestedScale;
@@ -45,8 +48,8 @@ export function calculateOutputDimensions(
   let effectiveScale: number = requestedScale;
   let isCappedBy4K = false;
 
-  // Batasi maksimal 4K jika diaktifkan (3840x2160 untuk landscape, 2160x3840 untuk portrait)
-  if (limit4K) {
+  // Batasi maksimal 4K jika diaktifkan DAN bukan mode resolusi ekstrem
+  if (limit4K && !allowExtremeResolution) {
     const isLandscape = inputWidth >= inputHeight;
     const maxBoundW = isLandscape ? MAX_4K_WIDTH : MAX_4K_HEIGHT;
     const maxBoundH = isLandscape ? MAX_4K_HEIGHT : MAX_4K_WIDTH;
@@ -61,25 +64,38 @@ export function calculateOutputDimensions(
       targetWidth = Math.round(inputWidth * effectiveScale);
       targetHeight = Math.round(inputHeight * effectiveScale);
     }
+  } else if (allowExtremeResolution) {
+    // Di Mode Ekstrem, batasi hanya pada batas mutlak WebKit 8192 px agar GPU tidak crash
+    if (targetWidth > MAX_EXTREME_DIMENSION || targetHeight > MAX_EXTREME_DIMENSION) {
+      const scaleW = MAX_EXTREME_DIMENSION / inputWidth;
+      const scaleH = MAX_EXTREME_DIMENSION / inputHeight;
+      effectiveScale = Math.min(requestedScale, Math.min(scaleW, scaleH));
+      targetWidth = Math.round(inputWidth * effectiveScale);
+      targetHeight = Math.round(inputHeight * effectiveScale);
+    }
   }
 
   const totalPixels = targetWidth * targetHeight;
-  const exceedsSafariLimit =
+  const isExtremeResolution = allowExtremeResolution || totalPixels > SAFARI_IOS_MAX_CANVAS_PIXELS;
+  const exceedsSafariLimit = !allowExtremeResolution && (
     totalPixels > SAFARI_IOS_MAX_CANVAS_PIXELS ||
-    targetWidth > 8192 ||
-    targetHeight > 8192;
+    targetWidth > SAFARI_SAFE_MAX_DIMENSION ||
+    targetHeight > SAFARI_SAFE_MAX_DIMENSION
+  );
 
   let warningMessage: string | undefined;
 
-  if (exceedsSafariLimit) {
-    warningMessage = `Peringatan: Resolusi output (${targetWidth}×${targetHeight} = ${(
+  if (allowExtremeResolution && totalPixels > SAFARI_IOS_MAX_CANVAS_PIXELS) {
+    warningMessage = `Mode Resolusi Ekstrem Aktif (${(totalPixels / 1_000_000).toFixed(1)} MP): Melampaui batas standar Safari. Mesin Ultra-HD Super-Res akan memproses petak dalam isolasi RAM hemat daya. Disarankan menutup aplikasi lain di iPhone.`;
+  } else if (exceedsSafariLimit) {
+    warningMessage = `Resolusi output (${targetWidth}×${targetHeight} = ${(
       totalPixels / 1_000_000
-    ).toFixed(1)} MP) melebihi batas canvas Safari iOS (~16.7 MP). Safari pada iPhone SE dapat menutup tab (out of memory). Disarankan mengaktifkan "Batasi 4K" atau memilih skala 2x.`;
+    ).toFixed(1)} MP) melampaui batas standar Safari iOS (~16.7 MP). Anda dapat mengaktifkan "Mode Resolusi Ekstrem" untuk tetap memprosesnya.`;
   } else if (
     targetWidth > SAFARI_SAFE_MAX_DIMENSION ||
     targetHeight > SAFARI_SAFE_MAX_DIMENSION
   ) {
-    warningMessage = `Catatan: Dimensi (${targetWidth}×${targetHeight}) mendekati batas rendering hardware iPhone SE (4096 px). Pemrosesan petak (tiling) akan mengamankan konsumsi memori.`;
+    warningMessage = `Catatan: Dimensi (${targetWidth}×${targetHeight}) mendekati batas rendering hardware iPhone. Pemrosesan petak terisolasi akan mengamankan konsumsi memori.`;
   }
 
   // Hitung jumlah petak (tiles)
@@ -88,9 +104,8 @@ export function calculateOutputDimensions(
   const tilesY = Math.max(1, Math.ceil((inputHeight - overlap) / step));
   const totalTiles = tilesX * tilesY;
 
-  // Estimasi waktu: Mode AI rata-rata ~80-150ms per petak di WebGPU, ~200-350ms di WASM
-  // Mode Algoritmik/Lanczos rata-rata ~10-25ms per petak
-  const msPerTile = isAIMode ? 220 : 18;
+  // Estimasi waktu
+  const msPerTile = isAIMode ? 180 : 15;
   const estimatedSeconds = Math.max(1, Math.round((totalTiles * msPerTile) / 1000));
 
   return {
@@ -103,6 +118,7 @@ export function calculateOutputDimensions(
     totalPixels,
     isCappedBy4K,
     exceedsSafariLimit,
+    isExtremeResolution,
     warningMessage,
     tilesX,
     tilesY,

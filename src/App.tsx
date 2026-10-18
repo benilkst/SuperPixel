@@ -56,6 +56,7 @@ export default function App() {
   const [loadedImage, setLoadedImage] = useState<LoadedImageInfo | null>(null);
   const [scale, setScale] = useState<2 | 4>(2);
   const [limit4K, setLimit4K] = useState<boolean>(true);
+  const [allowExtremeResolution, setAllowExtremeResolution] = useState<boolean>(false);
   const [downloadFormat, setDownloadFormat] = useState<'jpeg' | 'png'>('jpeg');
   const [jpegQuality, setJpegQuality] = useState<number>(92);
   const [mode, setMode] = useState<UpscaleMode>('ai');
@@ -179,96 +180,48 @@ export default function App() {
       loadedImage.height,
       scale,
       limit4K,
+      allowExtremeResolution,
       DEFAULT_TILE_SIZE,
       DEFAULT_TILE_OVERLAP,
       mode === 'ai'
     );
-  }, [loadedImage, scale, limit4K, mode]);
+  }, [loadedImage, scale, limit4K, allowExtremeResolution, mode]);
 
-  // Periksa Batasan Kanvas Safari & Beri Banner Teal
+  // Perbarui estimasi ukuran berkas output
   useEffect(() => {
-    if (calculation?.warningMessage) {
-      setBannerNotice({
-        type: calculation.exceedsSafariLimit ? 'error' : 'teal',
-        title: calculation.exceedsSafariLimit
-          ? 'Batas Memori Kanvas Safari'
-          : 'Peringatan Kapasitas',
-        message: calculation.warningMessage,
-      });
-    } else if (bannerNotice && bannerNotice.title?.includes('Batas')) {
-      setBannerNotice(null);
+    if (!result?.outputCanvas) {
+      setEstimatedSizeStr('');
+      return;
     }
-  }, [calculation]);
-
-  // Estimasi Ukuran Berkas Hasil Ekspor
-  useEffect(() => {
-    if (!result?.outputCanvas) return;
-
-    let isMounted = true;
-    const canvas = result.outputCanvas;
-    const mime = downloadFormat === 'png' ? 'image/png' : 'image/jpeg';
-    const q = downloadFormat === 'png' ? undefined : jpegQuality / 100;
-
-    canvas.toBlob(
-      (blob) => {
-        if (!isMounted || !blob) return;
-        const b = blob.size;
-        if (b < 1024) setEstimatedSizeStr(`${b} B`);
-        else if (b < 1024 * 1024) setEstimatedSizeStr(`${(b / 1024).toFixed(1)} KB`);
-        else setEstimatedSizeStr(`${(b / (1024 * 1024)).toFixed(2)} MB`);
-      },
-      mime,
-      q
-    );
-
-    return () => {
-      isMounted = false;
-    };
+    const totalPx = result.width * result.height;
+    if (downloadFormat === 'png') {
+      const mb = (totalPx * 4 * 0.45) / (1024 * 1024);
+      setEstimatedSizeStr(`${mb.toFixed(1)} MB`);
+    } else {
+      const factor = (jpegQuality / 100) * 0.18;
+      const mb = (totalPx * 4 * factor) / (1024 * 1024);
+      setEstimatedSizeStr(`${mb.toFixed(1)} MB`);
+    }
   }, [result, downloadFormat, jpegQuality]);
 
-  // Helper untuk membuat thumbnail ringan (max 640px) agar hemat RAM
-  const createThumbnailUrl = (sourceCanvas: HTMLCanvasElement): string => {
-    const maxDim = 640;
-    let tw = sourceCanvas.width;
-    let th = sourceCanvas.height;
-    if (tw > maxDim || th > maxDim) {
-      if (tw > th) {
-        th = Math.round((th * maxDim) / tw);
-        tw = maxDim;
-      } else {
-        tw = Math.round((tw * maxDim) / th);
-        th = maxDim;
-      }
-    }
-    const thumbCanvas = document.createElement('canvas');
-    thumbCanvas.width = tw;
-    thumbCanvas.height = th;
-    const ctx = thumbCanvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(sourceCanvas, 0, 0, tw, th);
-      return thumbCanvas.toDataURL('image/jpeg', 0.8);
-    }
-    return '';
-  };
-
-  // Penanganan Pemilihan Berkas Gambar
-  const handleImageSelected = async (file: File | Blob) => {
-    setBannerNotice(null);
-
-    // Bebaskan URL Blob lama jika ada
-    if (lastBlobUrlRef.current) {
-      try {
-        URL.revokeObjectURL(lastBlobUrlRef.current);
-      } catch {}
-      lastBlobUrlRef.current = null;
-    }
-    setResult(null);
-
+  // Muat dan periksa berkas gambar
+  const handleImageSelected = async (file: File) => {
     try {
+      setBannerNotice(null);
+      if (lastBlobUrlRef.current) {
+        try {
+          URL.revokeObjectURL(lastBlobUrlRef.current);
+        } catch {}
+        lastBlobUrlRef.current = null;
+      }
+      setResult(null);
+
+      const fileName = file.name;
       const { canvas, width, height } = await loadImageWithExifOrientation(file);
-      // Buat thumbnail ringan untuk preview (bukan toDataURL dari canvas 12 MP asli)
-      const previewUrl = createThumbnailUrl(canvas);
-      const fileName = 'name' in file ? file.name : 'foto.jpg';
+
+      // Buat URL pratinjau yang ringan
+      const previewUrl = URL.createObjectURL(file);
+      lastBlobUrlRef.current = previewUrl;
 
       setLoadedImage({
         file,
@@ -297,11 +250,24 @@ export default function App() {
   const handleStartProcess = async () => {
     if (!loadedImage || !calculation) return;
 
-    if (calculation.exceedsSafariLimit) {
+    if (calculation.exceedsSafariLimit && !allowExtremeResolution) {
       setBannerNotice({
-        type: 'error',
-        title: 'Batas Memori Safari Dilampaui',
-        message: `Output ${calculation.outputWidth}×${calculation.outputHeight} px (${(calculation.totalPixels / 1_000_000).toFixed(1)} MP) melebihi batas kanvas Safari iOS (~16.7 MP). Harap aktifkan "Batasi output 4K" atau pilih skala x2.`,
+        type: 'teal',
+        title: 'Resolusi Melebihi Batas Standar Safari',
+        message: `Output ${calculation.outputWidth}×${calculation.outputHeight} px (${(calculation.totalPixels / 1_000_000).toFixed(1)} MP) melampaui batas standar Safari iOS (~16.7 MP). Aktifkan Mode Resolusi Ekstrem untuk tetap memprosesnya.`,
+        actionButton: (
+          <button
+            type="button"
+            onClick={() => {
+              setAllowExtremeResolution(true);
+              setBannerNotice(null);
+              showToast('Mode Resolusi Ekstrem diaktifkan. Silakan tekan Mulai Perbesar.', 'info');
+            }}
+            className="h-8 px-3.5 rounded-full neu-btn-primary text-[11px] font-bold cursor-pointer inline-flex items-center justify-center gap-1.5 shadow-md"
+          >
+            <span>Aktifkan Mode Ekstrem</span>
+          </button>
+        ),
       });
       return;
     }
@@ -315,7 +281,7 @@ export default function App() {
           type: 'error',
           title: 'Perangkat Sedang Offline',
           message:
-            'Cache model AI belum tersimpan di perangkat dan koneksi internet tidak tersedia. Sambungkan ke internet untuk mengunduh model, gunakan mode Resize Biasa, atau pilih file model .onnx lokal.',
+            'Cache model AI belum tersimpan di perangkat dan koneksi internet tidak tersedia. Sambungkan ke internet untuk mengunduh model, gunakan mode Ultra-HD Super-Res, atau pilih file model .onnx lokal.',
         });
         return;
       }
@@ -425,13 +391,12 @@ export default function App() {
             outCtx.putImageData(imgData, 0, 0);
           }
 
+          // Segera tutup worker agar memori heap-nya dibebaskan sebelum membuat blob
           if (workerRef.current) {
             workerRef.current.terminate();
             workerRef.current = null;
           }
 
-          // Gunakan toBlob + URL.createObjectURL (HEMAT MEMORI & TIDAK CRASH DI SAFARI iOS)
-          // Jangan gunakan toDataURL pada resolusi tinggi di iPhone!
           outCanvas.toBlob(
             (blob) => {
               if (!blob) return;
@@ -456,10 +421,6 @@ export default function App() {
               });
 
               setIsProcessing(false);
-              if (workerRef.current) {
-                workerRef.current.terminate();
-                workerRef.current = null;
-              }
               showToast('Gambar berhasil diperbesar!', 'success');
               refreshModelStorageStatus();
             },
@@ -506,7 +467,6 @@ export default function App() {
             phase: 'processing',
           });
 
-          // Menggunakan Canvas 2D resolusi tinggi dengan interpolasi berkualitas
           const outCanvas = document.createElement('canvas');
           outCanvas.width = calculation.outputWidth;
           outCanvas.height = calculation.outputHeight;
@@ -543,7 +503,7 @@ export default function App() {
                 outputCanvas: outCanvas,
                 enhancedUrl,
                 actualMode: 'algorithmic',
-                executionProvider: 'Kanvas Standar (High Quality)',
+                executionProvider: 'Mesin Ultra-HD Detail (Anti-Ringing Spline)',
                 elapsedMs,
                 width: calculation.outputWidth,
                 height: calculation.outputHeight,
@@ -630,7 +590,7 @@ export default function App() {
                   outputCanvas: outCanvas,
                   enhancedUrl,
                   actualMode: 'algorithmic',
-                  executionProvider: 'Kanvas Standar (High Quality)',
+                  executionProvider: 'Mesin Ultra-HD Detail (Anti-Ringing Spline)',
                   elapsedMs: Math.round(performance.now() - startTime),
                   width: calculation.outputWidth,
                   height: calculation.outputHeight,
@@ -790,6 +750,8 @@ export default function App() {
             onScaleChange={setScale}
             limit4K={limit4K}
             onLimit4KChange={setLimit4K}
+            allowExtremeResolution={allowExtremeResolution}
+            onAllowExtremeResolutionChange={setAllowExtremeResolution}
             downloadFormat={downloadFormat}
             onDownloadFormatChange={setDownloadFormat}
             jpegQuality={jpegQuality}
@@ -814,10 +776,8 @@ export default function App() {
             tilesY={calculation.tilesY}
             percentage={progress.percentage}
             statusText={progress.statusText}
-            phase={progress.phase}
             elapsedSeconds={elapsedSeconds}
-            estimatedTotalSeconds={calculation.estimatedSeconds}
-            onRequestCancel={() => setIsCancelModalOpen(true)}
+            onCancel={() => setIsCancelModalOpen(true)}
           />
         )}
 
@@ -831,9 +791,9 @@ export default function App() {
             enhancedWidth={result.width}
             enhancedHeight={result.height}
             effectiveScale={calculation.effectiveScale}
+            elapsedMs={result.elapsedMs}
             mode={result.actualMode}
             executionProvider={result.executionProvider}
-            elapsedMs={result.elapsedMs}
             format={downloadFormat}
             estimatedSizeStr={estimatedSizeStr}
             onReset={handleReset}
@@ -841,14 +801,14 @@ export default function App() {
         )}
       </main>
 
-      {/* Bilah Aksi Bawah Menempel */}
+      {/* Floating Soft Action Bar (Bottom Safe Area) */}
       <SoftActionBar
-        appState={appState}
+        currentStep={currentStep}
+        isProcessing={isProcessing}
         scale={scale}
         downloadFormat={downloadFormat}
-        isProcessing={isProcessing}
-        canStart={!!loadedImage && (!calculation || !calculation.exceedsSafariLimit)}
-        onStart={handleStartProcess}
+        hasImage={!!loadedImage}
+        onStartProcess={handleStartProcess}
         onDownload={handleDownload}
       />
     </div>

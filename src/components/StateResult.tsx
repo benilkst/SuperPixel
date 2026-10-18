@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { UpscaleMode } from '../types/upscaler';
 
 interface StateResultProps {
@@ -14,11 +14,11 @@ interface StateResultProps {
   enhancedWidth: number;
   enhancedHeight: number;
   effectiveScale: number;
+  elapsedMs: number;
   mode: UpscaleMode;
   executionProvider: string;
-  elapsedMs: number;
   format: 'jpeg' | 'png';
-  estimatedSizeStr: string;
+  estimatedSizeStr?: string;
   onReset: () => void;
 }
 
@@ -30,23 +30,23 @@ export const StateResult: React.FC<StateResultProps> = ({
   enhancedWidth,
   enhancedHeight,
   effectiveScale,
+  elapsedMs,
   mode,
   executionProvider,
-  elapsedMs,
   format,
   estimatedSizeStr,
   onReset,
 }) => {
-  const [sliderPos, setSliderPos] = useState<number>(50);
+  const [sliderPosition, setSliderPosition] = useState<number>(50);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
 
   const updatePosition = useCallback((clientX: number) => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const p = Math.min(100, Math.max(0, (x / rect.width) * 100));
-    setSliderPos(p);
+    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    const percent = Math.max(0, Math.min((x / rect.width) * 100, 100));
+    setSliderPosition(percent);
   }, []);
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -92,41 +92,38 @@ export const StateResult: React.FC<StateResultProps> = ({
             />
           </div>
 
-          {/* Layer Sebelum (Original) dengan Clip Path */}
+          {/* Layer Sebelum (Original) yang dipotong oleh slider */}
           <div
-            className="absolute inset-0 w-full h-full overflow-hidden flex items-center justify-center"
-            style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
+            className="absolute inset-y-0 left-0 overflow-hidden"
+            style={{ width: `${sliderPosition}%` }}
           >
-            <img
-              src={originalUrl}
-              alt="Sebelum"
-              className="w-full h-full object-contain pointer-events-none"
-              style={{ imageRendering: 'pixelated' }}
-            />
-          </div>
-
-          {/* Garis Pemisah dengan Handle Neumorphic */}
-          <div
-            className="absolute top-0 bottom-0 w-0.5 bg-white/90 z-20 pointer-events-none shadow-md"
-            style={{ left: `${sliderPos}%` }}
-          >
-            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full neu-raised bg-[var(--bg-base)] flex items-center justify-center border border-[var(--accent)]/30">
-              <svg
-                className="w-4 h-4 text-[var(--accent)]"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-              >
-                <path d="m9 18-6-6 6-6" />
-                <path d="m15 6 6 6-6 6" />
-              </svg>
+            <div
+              className="relative h-full flex items-center justify-center"
+              style={{
+                width: containerRef.current ? containerRef.current.clientWidth : '100%',
+              }}
+            >
+              <img
+                src={originalUrl}
+                alt="Sebelum"
+                className="w-full h-full object-contain pointer-events-none"
+              />
             </div>
           </div>
 
-          {/* Label Monospace SEBELUM dan SESUDAH di Sudut Gambar */}
+          {/* Garis Pemisah Interaktif */}
+          <div
+            className="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_8px_rgba(0,0,0,0.4)] z-20 pointer-events-none"
+            style={{ left: `${sliderPosition}%` }}
+          >
+            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-white text-[var(--accent)] shadow-md flex items-center justify-center text-xs font-bold pointer-events-auto cursor-ew-resize">
+              ⇄
+            </div>
+          </div>
+
+          {/* Label Sebelum / Sesudah */}
           <div className="absolute top-3 left-3 z-30 pointer-events-none">
-            <span className="px-2 py-0.5 rounded-lg neu-raised text-[10px] font-bold tracking-wider uppercase text-[var(--text-primary)] font-tabular">
+            <span className="px-2 py-0.5 rounded-lg neu-raised text-[10px] font-bold tracking-wider uppercase text-[var(--text-secondary)] font-tabular">
               SEBELUM
             </span>
           </div>
@@ -139,7 +136,7 @@ export const StateResult: React.FC<StateResultProps> = ({
         </div>
       </div>
 
-      {/* Kartu Raised Berisi Daftar Dua Kolom */}
+      {/* Kartu Raised Berisi Data Hasil Pembesaran */}
       <div className="w-full p-4 rounded-3xl neu-raised flex flex-col gap-2.5">
         <span className="text-[11px] font-bold tracking-wider uppercase text-[var(--text-secondary)] px-0.5">
           Data Teknis Hasil Pembesaran
@@ -176,7 +173,7 @@ export const StateResult: React.FC<StateResultProps> = ({
 
           <div className="flex justify-between items-center py-1 border-b border-[var(--border-subtle)]">
             <span className="text-[var(--text-secondary)] font-medium">Mesin</span>
-            <span className="px-2 py-0.5 rounded-full bg-[var(--accent)] text-[var(--accent-text)] text-[10px] font-bold tracking-wide uppercase">
+            <span className="px-2 py-0.5 rounded-full bg-[var(--accent)] text-[var(--accent-text)] text-[10px] font-bold tracking-wide uppercase truncate max-w-[180px]">
               {mode === 'ai' ? 'AI Real-ESRGAN' : 'Ultra-HD Super-Res'}
             </span>
           </div>

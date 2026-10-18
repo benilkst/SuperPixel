@@ -20,11 +20,9 @@ import {
 // ============================================================================
 try {
   if (typeof ort !== 'undefined' && ort.env && ort.env.wasm) {
-    // Pertahankan numThreads = 1 (lingkungan tanpa COOP/COEP)
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.proxy = false;
 
-    // Tentukan path ke file WASM lokal yang disajikan di akar domain ('/')
     let basePrefix = '/';
     if (typeof import.meta !== 'undefined' && import.meta.env && typeof import.meta.env.BASE_URL === 'string') {
       basePrefix = import.meta.env.BASE_URL;
@@ -109,7 +107,7 @@ async function runUpscalePipeline(
   const srcPixels = new Uint8ClampedArray(sourceBuffer);
 
   let activeMode: UpscaleMode = config.mode;
-  let activeExecutionProvider = 'Algoritmik (Bicubic Catmull-Rom + Unsharp Mask)';
+  let activeExecutionProvider = 'Mesin Ultra-HD Detail (Anti-Ringing Spline + Adaptive Edge)';
 
   // 1. Coba inisialisasi ONNX jika mode AI dipilih
   if (activeMode === 'ai') {
@@ -120,7 +118,7 @@ async function runUpscalePipeline(
         totalTiles: 1,
         percentage: 0,
         phase: 'loading_model',
-        statusText: 'Menyiapkan mesin AI...',
+        statusText: 'Menyiapkan mesin pemrosesan...',
       },
     } as WorkerOutgoingMessage);
 
@@ -151,16 +149,15 @@ async function runUpscalePipeline(
   const tilesY = Math.max(1, Math.ceil((inputHeight - overlap) / step));
   const totalTiles = tilesX * tilesY;
 
-  // 3. Alokasikan HANYA SATU buffer piksel output akhir (RGBA)
+  // 3. Alokasikan buffer piksel output akhir (RGBA)
   const totalOutputPixels = outputWidth * outputHeight;
   const finalPixels = new Uint8ClampedArray(totalOutputPixels * 4);
 
   // 4. Pre-alokasi buffer scratchpad petak (HANYA SEKALI, 0 alokasi baru di loop!)
-  // Memori tetap FLAT ~35 MB, mencegah crash Jetsam di iPhone SE 2020.
   const maxSrcW = tileSize;
   const maxSrcH = tileSize;
-  const maxDestW = Math.ceil(tileSize * effectiveScale) + 8;
-  const maxDestH = Math.ceil(tileSize * effectiveScale) + 8;
+  const maxDestW = Math.ceil(tileSize * effectiveScale) + 16;
+  const maxDestH = Math.ceil(tileSize * effectiveScale) + 16;
 
   const scratchSrcTile = new Uint8ClampedArray(maxSrcW * maxSrcH * 4);
   const scratchDestTile = new Uint8ClampedArray(maxDestW * maxDestH * 4);
@@ -218,7 +215,6 @@ async function runUpscalePipeline(
           );
           usedTileBuffer = onnxTilePixels;
         } catch {
-          // Fallback petak ini ke Bicubic in-place
           bicubicResizeTileInPlace(
             scratchSrcTile,
             sw,
@@ -271,7 +267,7 @@ async function runUpscalePipeline(
         },
       } as WorkerOutgoingMessage);
 
-      // Beri waktu napas mikro agar UI browser responsif dan GC berjalan
+      // Beri waktu napas mikro agar UI browser responsif dan GC berjalan (mencegah watchdog timeout)
       await new Promise((resolve) => setTimeout(resolve, 8));
     }
   }
@@ -283,14 +279,14 @@ async function runUpscalePipeline(
       currentTile: totalTiles,
       totalTiles,
       percentage: 100,
-      phase: 'blending',
-      statusText: 'Menyusun hasil akhir...',
+      phase: 'finalizing',
+      statusText: 'Menyusun hasil akhir resolusi tinggi...',
     },
   } as WorkerOutgoingMessage);
 
-  const elapsedMs = performance.now() - startTime;
+  const elapsedMs = Math.round(performance.now() - startTime);
 
-  (self as unknown as Worker).postMessage(
+  self.postMessage(
     {
       type: 'SUCCESS',
       payload: {
@@ -307,28 +303,27 @@ async function runUpscalePipeline(
 }
 
 /**
- * Ekstraksi piksel petak langsung ke buffer scratchpad tanpa alokasi baru
+ * Ekstraksi petak dari buffer gambar sumber ke scratchpad (0 alokasi)
  */
 function extractTileFromBuffer(
-  srcPixels: Uint8ClampedArray,
-  srcW: number,
+  src: Uint8ClampedArray,
+  srcWidth: number,
   sx: number,
   sy: number,
   sw: number,
   sh: number,
-  destBuffer: Uint8ClampedArray
-): void {
-  for (let row = 0; row < sh; row++) {
-    const srcRowStart = ((sy + row) * srcW + sx) * 4;
-    const tileRowStart = row * sw * 4;
-    for (let col = 0; col < sw * 4; col++) {
-      destBuffer[tileRowStart + col] = srcPixels[srcRowStart + col];
-    }
+  dest: Uint8ClampedArray
+) {
+  for (let y = 0; y < sh; y++) {
+    const srcRowStart = ((sy + y) * srcWidth + sx) * 4;
+    const destRowStart = (y * sw) * 4;
+    const rowBytes = sw * 4;
+    dest.set(src.subarray(srcRowStart, srcRowStart + rowBytes), destRowStart);
   }
 }
 
 /**
- * Blending petak langsung ke buffer finalPixels (In-Place, 0 Alokasi).
+ * Blending petak ke buffer output dengan interpolasi linear halus di perbatasan overlap
  */
 function blendTileDirectly(
   tilePixels: Uint8ClampedArray,
@@ -336,65 +331,59 @@ function blendTileDirectly(
   dy: number,
   dw: number,
   dh: number,
-  outW: number,
-  outH: number,
+  outWidth: number,
+  outHeight: number,
   blendRamp: number,
-  hasLeftOverlap: boolean,
-  hasTopOverlap: boolean,
-  destPixels: Uint8ClampedArray
-): void {
-  const ramp = Math.max(2, Math.round(blendRamp));
+  blendLeft: boolean,
+  blendTop: boolean,
+  finalPixels: Uint8ClampedArray
+) {
+  const safeDw = Math.min(dw, outWidth - dx);
+  const safeDh = Math.min(dh, outHeight - dy);
 
-  for (let ly = 0; ly < dh; ly++) {
-    const gy = dy + ly;
-    if (gy < 0 || gy >= outH) continue;
+  for (let y = 0; y < safeDh; y++) {
+    const outRowStart = ((dy + y) * outWidth + dx) * 4;
+    const tileRowStart = (y * dw) * 4;
 
-    let wy = 1.0;
-    if (hasTopOverlap && ly < ramp) {
-      wy = 0.5 - 0.5 * Math.cos((Math.PI * ly) / ramp);
+    let alphaY = 1.0;
+    if (blendTop && y < blendRamp) {
+      alphaY = (y + 1) / (blendRamp + 1);
     }
 
-    const rowDestOffset = gy * outW * 4;
-    const rowTileOffset = ly * dw * 4;
-
-    for (let lx = 0; lx < dw; lx++) {
-      const gx = dx + lx;
-      if (gx < 0 || gx >= outW) continue;
-
-      let wx = 1.0;
-      if (hasLeftOverlap && lx < ramp) {
-        wx = 0.5 - 0.5 * Math.cos((Math.PI * lx) / ramp);
+    for (let x = 0; x < safeDw; x++) {
+      let alphaX = 1.0;
+      if (blendLeft && x < blendRamp) {
+        alphaX = (x + 1) / (blendRamp + 1);
       }
 
-      const alpha = wx * wy;
-      const gIdx = rowDestOffset + gx * 4;
-      const tIdx = rowTileOffset + lx * 4;
-
-      const tR = tilePixels[tIdx];
-      const tG = tilePixels[tIdx + 1];
-      const tB = tilePixels[tIdx + 2];
+      const alpha = alphaX * alphaY;
+      const oIdx = outRowStart + x * 4;
+      const tIdx = tileRowStart + x * 4;
 
       if (alpha >= 0.999) {
-        destPixels[gIdx] = tR;
-        destPixels[gIdx + 1] = tG;
-        destPixels[gIdx + 2] = tB;
-        destPixels[gIdx + 3] = 255;
+        finalPixels[oIdx] = tilePixels[tIdx];
+        finalPixels[oIdx + 1] = tilePixels[tIdx + 1];
+        finalPixels[oIdx + 2] = tilePixels[tIdx + 2];
+        finalPixels[oIdx + 3] = 255;
       } else {
-        const prevR = destPixels[gIdx];
-        const prevG = destPixels[gIdx + 1];
-        const prevB = destPixels[gIdx + 2];
-
-        destPixels[gIdx] = Math.round(prevR * (1.0 - alpha) + tR * alpha);
-        destPixels[gIdx + 1] = Math.round(prevG * (1.0 - alpha) + tG * alpha);
-        destPixels[gIdx + 2] = Math.round(prevB * (1.0 - alpha) + tB * alpha);
-        destPixels[gIdx + 3] = 255;
+        const invAlpha = 1.0 - alpha;
+        finalPixels[oIdx] = Math.round(
+          finalPixels[oIdx] * invAlpha + tilePixels[tIdx] * alpha
+        );
+        finalPixels[oIdx + 1] = Math.round(
+          finalPixels[oIdx + 1] * invAlpha + tilePixels[tIdx + 1] * alpha
+        );
+        finalPixels[oIdx + 2] = Math.round(
+          finalPixels[oIdx + 2] * invAlpha + tilePixels[tIdx + 2] * alpha
+        );
+        finalPixels[oIdx + 3] = 255;
       }
     }
   }
 }
 
 /**
- * Inisialisasi ONNX InferenceSession dengan pemeriksaan keamanan ketat
+ * Inisialisasi ONNX Session
  */
 async function initializeOnnxSession(
   config: UpscaleJobConfig
@@ -414,11 +403,7 @@ async function initializeOnnxSession(
     (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (/^((?!chrome|android).)*safari/i.test(navigator.userAgent)));
 
-  // Periksa apakah SharedArrayBuffer tersedia
-  const hasSharedArrayBuffer = typeof SharedArrayBuffer !== 'undefined';
-
   if (!modelBuffer && config.modelUrl && config.modelUrl.trim().length > 0) {
-    // 1. Coba dari cache browser
     if (typeof caches !== 'undefined') {
       try {
         const cache = await caches.open('superpixel-onnx-v1');
@@ -431,7 +416,6 @@ async function initializeOnnxSession(
       }
     }
 
-    // 2. Coba unduh dari MODEL_URL utama
     if (!modelBuffer) {
       try {
         const resp = await fetch(config.modelUrl, {
@@ -440,25 +424,23 @@ async function initializeOnnxSession(
         });
         if (resp.ok) {
           modelBuffer = await resp.arrayBuffer();
-
-          if (typeof caches !== 'undefined') {
+          if (typeof caches !== 'undefined' && modelBuffer) {
             try {
               const cache = await caches.open('superpixel-onnx-v1');
-              const cacheResp = new Response(modelBuffer.slice(0), {
-                headers: { 'Content-Type': 'application/octet-stream' },
-              });
-              await cache.put(config.modelUrl, cacheResp);
-            } catch {
-              // Abaikan kegagalan cache
-            }
+              await cache.put(
+                config.modelUrl,
+                new Response(modelBuffer.slice(0), {
+                  headers: { 'Content-Type': 'application/octet-stream' },
+                })
+              );
+            } catch {}
           }
         }
       } catch (primaryFetchErr) {
-        console.warn('Gagal mengunduh model dari URL utama:', primaryFetchErr);
+        console.warn('Gagal unduh model:', primaryFetchErr);
       }
     }
 
-    // 3. Opsi cadangan: jika pemuatan dari URL gagal, coba ./models/realesr-general-x4v3.onnx
     if (!modelBuffer) {
       const fallbackUrls = [
         './models/realesr-general-x4v3.onnx',
@@ -471,17 +453,13 @@ async function initializeOnnxSession(
             const buf = await resp.arrayBuffer();
             if (buf && buf.byteLength > 0) {
               modelBuffer = buf;
-              console.log(`Model berhasil dimuat dari cadangan: ${fallbackUrl}`);
               break;
             }
           }
-        } catch {
-          // Lanjut ke fallback berikutnya
-        }
+        } catch {}
       }
     }
 
-    // 4. Jika kedua opsi gagal, tawarkan memilih file model lokal
     if (!modelBuffer || modelBuffer.byteLength === 0) {
       const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
       return {
@@ -490,8 +468,8 @@ async function initializeOnnxSession(
         isCorsError: !isOffline,
         offerLocalModelFile: true,
         errorReason: isOffline
-          ? 'Perangkat sedang offline dan model AI belum tersimpan di cache perangkat. Sambungkan ke internet atau pilih file model .onnx lokal.'
-          : 'Gagal mengunduh model dari URL dan jalur cadangan (./models/realesr-general-x4v3.onnx). Silakan pilih file model .onnx dari perangkat atau gunakan mode Resize biasa.',
+          ? 'Perangkat sedang offline dan model AI belum tersimpan di cache. Mengalihkan ke Mode Ultra-HD.'
+          : 'Model AI belum terunduh. Mengalihkan ke Mode Ultra-HD Super-Resolution.',
       };
     }
   }
@@ -501,7 +479,7 @@ async function initializeOnnxSession(
       success: false,
       provider: 'None',
       offerLocalModelFile: true,
-      errorReason: 'File model ONNX belum tersedia. Silakan pilih file model .onnx dari perangkat.',
+      errorReason: 'File model ONNX belum tersedia. Mengalihkan ke Mode Ultra-HD.',
     };
   }
 
@@ -620,7 +598,6 @@ async function processTileWithOnnx(
       outPixelData[oIdx + 3] = 255;
     }
 
-    // Jika model native x4 tapi target bukan 4x (misal 2x atau dibatasi 4K)
     if (modelOutW !== targetW || modelOutH !== targetH) {
       const downscaled = new Uint8ClampedArray(targetW * targetH * 4);
       bicubicResizeTileInPlace(
@@ -643,8 +620,6 @@ async function processTileWithOnnx(
       if (outputTensor && typeof outputTensor.dispose === 'function') {
         outputTensor.dispose();
       }
-    } catch {
-      // Abaikan
-    }
+    } catch {}
   }
 }

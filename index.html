@@ -1,35 +1,33 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="id">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>Upscaler Foto — SuperPixel</title>
-    <meta name="description" content="Aplikasi upscaler foto hemat memori di browser dengan antarmuka Soft UI Neumorphism hangat, WebGPU/WASM, dan pemrosesan per petak." />
-    <meta property="og:title" content="Upscaler Foto" />
-    <meta property="og:description" content="Upscaler foto hemat memori di browser dengan antarmuka Soft UI hangat." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary" />
-    
-    <!-- PWA & iOS Mobile Web App Meta Tags -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>SuperPixel - Upscaler Foto Soft UI</title>
+    <meta
+      name="description"
+      content="Upscaler foto di browser dengan pemrosesan hemat memori untuk iPhone dan desktop, akselerasi WebGPU, perbandingan interaktif sebelum/sesudah, dan ekspor kualitas tinggi."
+    />
+    <meta property="og:title" content="SuperPixel - Upscaler Foto Soft UI" />
+    <meta
+      property="og:description"
+      content="Upscaler foto di browser dengan pemrosesan hemat memori untuk iPhone dan desktop, akselerasi WebGPU, perbandingan interaktif sebelum/sesudah, dan ekspor kualitas tinggi."
+    />
+
+    <!-- iOS Standalone Web App Meta & PWA Icons -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Upscaler" />
-    
-    <!-- Theme Colors (Light & Dark Scheme) -->
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#EFE8DA" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#26241F" />
-    
-    <!-- Apple Touch Icon (Full-bleed 180x180 PNG without transparency/rounded corners) -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#EFE8DA" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#26241F" />
   </head>
-  <body class="bg-[#EFE8DA] text-[#26241F] min-h-screen antialiased">
+  <body class="bg-[#EFE8DA] text-[#2D2A26] dark:bg-[#26241F] dark:text-[#EAE6DF] antialiased select-none min-h-screen">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

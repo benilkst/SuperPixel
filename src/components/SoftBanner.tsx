@@ -9,59 +9,43 @@ interface SoftBannerProps {
   type?: 'teal' | 'error';
   title?: string;
   message: string;
-  onClose?: () => void;
   actionButton?: React.ReactNode;
+  onClose?: () => void;
 }
 
 export const SoftBanner: React.FC<SoftBannerProps> = ({
   type = 'teal',
   title,
   message,
-  onClose,
   actionButton,
+  onClose,
 }) => {
-  const isTeal = type === 'teal';
+  const isError = type === 'error';
 
   return (
     <div
-      className={`w-full p-3.5 rounded-2xl neu-inset border-l-4 flex flex-col gap-2 transition-all ${
-        isTeal
-          ? 'border-l-[var(--accent)] bg-[var(--accent)]/5 text-[var(--text-primary)]'
-          : 'border-l-[var(--error)] bg-[var(--error)]/5 text-[var(--text-primary)]'
+      className={`w-full p-3.5 rounded-2xl flex flex-col gap-2 transition-all ${
+        isError
+          ? 'bg-[var(--error)]/10 border border-[var(--error)]/30 text-[var(--error)]'
+          : 'bg-[var(--accent)]/10 border border-[var(--accent)]/30 text-[var(--text-primary)]'
       }`}
     >
-      <div className="flex items-start justify-between gap-2.5">
+      <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2.5">
-          <div
-            className={`w-5 h-5 shrink-0 mt-0.5 rounded-full flex items-center justify-center ${
-              isTeal ? 'text-[var(--accent)]' : 'text-[var(--error)]'
+          <span
+            className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
+              isError ? 'bg-[var(--error)]' : 'bg-[var(--accent)]'
             }`}
-          >
-            <svg
-              className="w-4 h-4 stroke-2"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="16" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12.01" y2="8" />
-            </svg>
-          </div>
-
-          <div className="flex flex-col gap-0.5">
+          />
+          <div className="flex flex-col">
             {title && (
-              <span
-                className={`text-xs font-bold tracking-wide ${
-                  isTeal ? 'text-[var(--accent)]' : 'text-[var(--error)]'
-                }`}
-              >
+              <span className="text-xs font-bold leading-tight mb-0.5">
                 {title}
               </span>
             )}
-            <span className="text-xs text-[var(--text-secondary)] leading-relaxed">
+            <p className="text-[11px] leading-relaxed opacity-90">
               {message}
-            </span>
+            </p>
           </div>
         </div>
 
@@ -69,14 +53,19 @@ export const SoftBanner: React.FC<SoftBannerProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="w-6 h-6 rounded-full neu-raised flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] shrink-0 text-xs"
+            aria-label="Tutup"
+            className="w-5 h-5 rounded-full neu-raised flex items-center justify-center text-[10px] shrink-0 cursor-pointer"
           >
             ✕
           </button>
         )}
       </div>
 
-      {actionButton && <div className="pl-7">{actionButton}</div>}
+      {actionButton && (
+        <div className="pt-1 flex items-center justify-end">
+          {actionButton}
+        </div>
+      )}
     </div>
   );
 };

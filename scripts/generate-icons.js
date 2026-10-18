@@ -1,13 +1,17 @@
-import fs from 'node:fs';
-import path from 'node:path';
+import fs from 'fs';
+import path from 'path';
 import sharp from 'sharp';
 
-const ROOT_DIR = process.cwd();
-const SVG_PATH = path.join(ROOT_DIR, 'public', 'icon.svg');
-const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
+const publicDir = path.resolve('public');
+const svgPath = path.join(publicDir, 'icon.svg');
 
 async function generateIcons() {
-  const svgBuffer = fs.readFileSync(SVG_PATH);
+  if (!fs.existsSync(svgPath)) {
+    console.error('icon.svg tidak ditemukan di folder public');
+    return;
+  }
+
+  const svgBuffer = fs.readFileSync(svgPath);
 
   const targets = [
     { name: 'apple-touch-icon-180x180.png', size: 180 },
@@ -18,16 +22,15 @@ async function generateIcons() {
   ];
 
   for (const target of targets) {
-    const outputPath = path.join(PUBLIC_DIR, target.name);
+    const outPath = path.join(publicDir, target.name);
     await sharp(svgBuffer)
       .resize(target.size, target.size)
-      .png({ quality: 100 })
-      .toFile(outputPath);
+      .png({ compressionLevel: 9 })
+      .toFile(outPath);
     console.log(`Generated ${target.name} (${target.size}x${target.size})`);
   }
 }
 
 generateIcons().catch((err) => {
-  console.error('Failed to generate icons:', err);
-  process.exit(1);
+  console.error('Gagal membuat ikon PNG:', err);
 });

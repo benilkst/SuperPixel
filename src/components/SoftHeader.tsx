@@ -52,7 +52,6 @@ export const SoftHeader: React.FC<SoftHeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Tombol Pasang PWA untuk Chrome / Android */}
         {canInstall && onInstall && (
           <button
             type="button"
@@ -69,7 +68,6 @@ export const SoftHeader: React.FC<SoftHeaderProps> = ({
           </button>
         )}
 
-        {/* Neumorphic Theme Toggle Pill */}
         <button
           type="button"
           onClick={onToggleTheme}
