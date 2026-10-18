@@ -418,12 +418,63 @@ async function initializeOnnxSession(
 
     if (!modelBuffer) {
       try {
+        self.postMessage({
+          type: 'PROGRESS',
+          payload: {
+            currentTile: 0,
+            totalTiles: 1,
+            percentage: 5,
+            phase: 'downloading_model',
+            statusText: 'Menghubungi server model AI Real-ESRGAN (4.6 MB)...',
+          },
+        } as WorkerOutgoingMessage);
+
         const resp = await fetch(config.modelUrl, {
           mode: 'cors',
           cache: 'no-store',
         });
+
         if (resp.ok) {
-          modelBuffer = await resp.arrayBuffer();
+          if (resp.body) {
+            const contentLength = resp.headers.get('content-length');
+            const total = contentLength ? parseInt(contentLength, 10) : 4_700_000;
+            const reader = resp.body.getReader();
+            const chunks: Uint8Array[] = [];
+            let loaded = 0;
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (value) {
+                chunks.push(value);
+                loaded += value.length;
+                const pct = Math.min(99, Math.round((loaded / total) * 100));
+                const mbLoaded = (loaded / (1024 * 1024)).toFixed(1);
+                const mbTotal = (total / (1024 * 1024)).toFixed(1);
+                self.postMessage({
+                  type: 'PROGRESS',
+                  payload: {
+                    currentTile: 0,
+                    totalTiles: 1,
+                    percentage: pct,
+                    phase: 'downloading_model',
+                    statusText: `Mengunduh model Real-ESRGAN (${mbLoaded}/${mbTotal} MB - ${pct}%)...`,
+                  },
+                } as WorkerOutgoingMessage);
+              }
+            }
+
+            const allBytes = new Uint8Array(loaded);
+            let pos = 0;
+            for (const chunk of chunks) {
+              allBytes.set(chunk, pos);
+              pos += chunk.length;
+            }
+            modelBuffer = allBytes.buffer;
+          } else {
+            modelBuffer = await resp.arrayBuffer();
+          }
+
           if (typeof caches !== 'undefined' && modelBuffer) {
             try {
               const cache = await caches.open('superpixel-onnx-v1');
@@ -489,6 +540,10 @@ async function initializeOnnxSession(
     'gpu' in navigator &&
     !!(navigator as unknown as { gpu?: unknown }).gpu;
 
+  let webGpuUnavailableReason = canTryWebGPU
+    ? 'WebGPU terdeteksi tetapi inisialisasi context gagal'
+    : 'Dukungan WebGPU belum aktif atau tidak tersedia di peramban ini';
+
   if (canTryWebGPU) {
     try {
       const session = await ort.InferenceSession.create(modelBuffer, {
@@ -498,20 +553,21 @@ async function initializeOnnxSession(
       return { success: true, session, provider: 'WebGPU (Akselerasi GPU)' };
     } catch (gpuErr) {
       console.warn('WebGPU init tidak tersedia:', gpuErr);
+      webGpuUnavailableReason = `WebGPU belum aktif: ${gpuErr instanceof Error ? gpuErr.message : String(gpuErr)}`;
     }
   }
 
   // 2. Proteksi Memori Safari iOS:
   // Mengompilasi WASM ONNX 28.3MB di Web Worker Safari iOS melebihi kuota memori Jetsam WebKit (~250MB),
   // yang menyebabkan tab browser crash/reload otomatis seketika di iPhone/iPad.
-  // Gunakan Mesin Ultra-HD Super-Resolution berpresisi tinggi (Anti-Ringing Spline + Adaptive Edge Detail)
+  // Alihkan otomatis ke Mesin Ultra-HD Super-Resolution berpresisi tinggi (Anti-Ringing Spline + Adaptive Edge Detail)
   // yang 100% bebas crash dengan kualitas optik superior.
   if (isAppleOrSafari) {
     return {
       success: false,
       provider: 'Ultra-HD Detail Engine (Anti-Ringing Spline + Adaptive Edge)',
       errorReason:
-        'Mode Ultra-HD Super-Resolution aktif: Ketajaman dan detail ditingkatkan maksimal dengan proteksi memori agar Safari iOS bebas crash.',
+        `${webGpuUnavailableReason}. Safari iOS mengalihkan pemrosesan ke Mesin Ultra-HD Super-Resolution (Anti-Ringing Spline + Adaptive Edge) agar 100% aman dari crash tab.`,
     };
   }
 
@@ -530,9 +586,7 @@ async function initializeOnnxSession(
     return {
       success: false,
       provider: 'None',
-      errorReason: `Inisialisasi engine AI: ${String(
-        wasmErr
-      )}. Mengalihkan ke Mode Ultra-HD.`,
+      errorReason: `${webGpuUnavailableReason} dan WASM menemui kendala. Mengalihkan ke Mode Ultra-HD Super-Res.`,
     };
   }
 }

@@ -763,6 +763,7 @@ export default function App() {
             onCustomModelFileChange={setCustomModelFile}
             isModelStored={isModelStored}
             onClearModelStorage={handleClearModelStorage}
+            onModelStorageUpdated={refreshModelStorageStatus}
           />
         )}
 

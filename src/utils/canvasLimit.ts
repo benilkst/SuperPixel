@@ -14,14 +14,21 @@ import {
 export interface ScaleCalculation {
   inputWidth: number;
   inputHeight: number;
+  inputMegapixels: number;
   requestedScale: number;
   effectiveScale: number;
   outputWidth: number;
   outputHeight: number;
   totalPixels: number;
+  outputMegapixels: number;
+  estimatedRamMB: number;
+  estimatedJpgSizeMB: number;
+  estimatedPngSizeMB: number;
   isCappedBy4K: boolean;
   exceedsSafariLimit: boolean;
   isExtremeResolution: boolean;
+  isInputHuge: boolean;
+  inputWarning?: string;
   warningMessage?: string;
   tilesX: number;
   tilesY: number;
@@ -31,7 +38,7 @@ export interface ScaleCalculation {
 
 /**
  * Menghitung resolusi output yang aman, batasan 4K, batasan Safari iOS,
- * serta mode resolusi ekstrem (bypass batas).
+ * estimasi ukuran memori canvas, serta mode resolusi ekstrem (bypass batas).
  */
 export function calculateOutputDimensions(
   inputWidth: number,
@@ -47,6 +54,15 @@ export function calculateOutputDimensions(
   let targetHeight = inputHeight * requestedScale;
   let effectiveScale: number = requestedScale;
   let isCappedBy4K = false;
+
+  const inputPixels = inputWidth * inputHeight;
+  const inputMegapixels = Number((inputPixels / 1_000_000).toFixed(1));
+  const isInputHuge = inputPixels > SAFARI_IOS_MAX_CANVAS_PIXELS || inputWidth > 4096 || inputHeight > 4096;
+  let inputWarning: string | undefined;
+
+  if (isInputHuge) {
+    inputWarning = `Foto input beresolusi sangat besar (${inputWidth}×${inputHeight} = ${inputMegapixels} MP). Direkomendasikan membiarkan opsi "Batasi 4K" aktif agar memori canvas tetap stabil di Safari iOS.`;
+  }
 
   // Batasi maksimal 4K jika diaktifkan DAN bukan mode resolusi ekstrem
   if (limit4K && !allowExtremeResolution) {
@@ -76,6 +92,11 @@ export function calculateOutputDimensions(
   }
 
   const totalPixels = targetWidth * targetHeight;
+  const outputMegapixels = Number((totalPixels / 1_000_000).toFixed(1));
+  const estimatedRamMB = Number(((totalPixels * 4) / (1024 * 1024)).toFixed(1));
+  const estimatedJpgSizeMB = Number(((totalPixels * 4 * 0.18 * 0.92) / (1024 * 1024)).toFixed(1));
+  const estimatedPngSizeMB = Number(((totalPixels * 4 * 0.45) / (1024 * 1024)).toFixed(1));
+
   const isExtremeResolution = allowExtremeResolution || totalPixels > SAFARI_IOS_MAX_CANVAS_PIXELS;
   const exceedsSafariLimit = !allowExtremeResolution && (
     totalPixels > SAFARI_IOS_MAX_CANVAS_PIXELS ||
@@ -86,11 +107,9 @@ export function calculateOutputDimensions(
   let warningMessage: string | undefined;
 
   if (allowExtremeResolution && totalPixels > SAFARI_IOS_MAX_CANVAS_PIXELS) {
-    warningMessage = `Mode Resolusi Ekstrem Aktif (${(totalPixels / 1_000_000).toFixed(1)} MP): Melampaui batas standar Safari. Mesin Ultra-HD Super-Res akan memproses petak dalam isolasi RAM hemat daya. Disarankan menutup aplikasi lain di iPhone.`;
+    warningMessage = `Mode Resolusi Ekstrem Aktif (${outputMegapixels} MP): Melampaui batas standar Safari. Mesin Ultra-HD Super-Res akan memproses petak dalam isolasi RAM hemat daya (~${estimatedRamMB} MB buffer). Disarankan menutup aplikasi lain di iPhone.`;
   } else if (exceedsSafariLimit) {
-    warningMessage = `Resolusi output (${targetWidth}×${targetHeight} = ${(
-      totalPixels / 1_000_000
-    ).toFixed(1)} MP) melampaui batas standar Safari iOS (~16.7 MP). Anda dapat mengaktifkan "Mode Resolusi Ekstrem" untuk tetap memprosesnya.`;
+    warningMessage = `Resolusi output (${targetWidth}×${targetHeight} = ${outputMegapixels} MP) melampaui batas standar Safari iOS (~16.7 MP). Anda dapat mengaktifkan "Mode Resolusi Ekstrem" untuk tetap memprosesnya.`;
   } else if (
     targetWidth > SAFARI_SAFE_MAX_DIMENSION ||
     targetHeight > SAFARI_SAFE_MAX_DIMENSION
@@ -111,14 +130,21 @@ export function calculateOutputDimensions(
   return {
     inputWidth,
     inputHeight,
+    inputMegapixels,
     requestedScale,
     effectiveScale,
     outputWidth: targetWidth,
     outputHeight: targetHeight,
     totalPixels,
+    outputMegapixels,
+    estimatedRamMB,
+    estimatedJpgSizeMB,
+    estimatedPngSizeMB,
     isCappedBy4K,
     exceedsSafariLimit,
     isExtremeResolution,
+    isInputHuge,
+    inputWarning,
     warningMessage,
     tilesX,
     tilesY,
