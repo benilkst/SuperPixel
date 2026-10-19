@@ -39,6 +39,12 @@ export function App() {
   const [limit4K, setLimit4K] = useState<boolean>(true);
   const [isModelCached, setIsModelCached] = useState<boolean>(false);
   const [errorNotification, setErrorNotification] = useState<string | null>(null);
+  const [uiScale, setUiScale] = useState<'67%' | '100%'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('superpixel_ui_scale') as '67%' | '100%') || '67%';
+    }
+    return '67%';
+  });
 
   // Processing state
   const [progressPct, setProgressPct] = useState(0);
@@ -74,6 +80,12 @@ export function App() {
       localStorage.setItem('superpixel_theme', 'light');
     }
   }, [isDarkMode]);
+
+  // Sinkronisasi skala antarmuka UI (default 67%)
+  useEffect(() => {
+    document.documentElement.style.zoom = uiScale;
+    localStorage.setItem('superpixel_ui_scale', uiScale);
+  }, [uiScale]);
 
   // Check model cache on mount
   useEffect(() => {
@@ -352,6 +364,8 @@ export function App() {
         <SoftHeader
           isDarkMode={isDarkMode}
           onToggleTheme={() => setIsDarkMode((d) => !d)}
+          uiScale={uiScale}
+          onToggleScale={() => setUiScale((s) => (s === '67%' ? '100%' : '67%'))}
           canInstall={!!deferredPrompt}
           onInstall={handleInstallApp}
         />

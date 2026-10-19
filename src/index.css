@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+html {
+  zoom: 67%;
+}
+
 :root {
   --bg-base: #EFE8DA;
   --bg-surface: #E8E1D3;

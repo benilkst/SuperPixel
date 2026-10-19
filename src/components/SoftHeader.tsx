@@ -8,6 +8,8 @@ import React from 'react';
 interface SoftHeaderProps {
   isDarkMode: boolean;
   onToggleTheme: () => void;
+  uiScale?: string;
+  onToggleScale?: () => void;
   canInstall?: boolean;
   onInstall?: () => void;
 }
@@ -15,6 +17,8 @@ interface SoftHeaderProps {
 export const SoftHeader: React.FC<SoftHeaderProps> = ({
   isDarkMode,
   onToggleTheme,
+  uiScale,
+  onToggleScale,
   canInstall,
   onInstall,
 }) => {
@@ -52,6 +56,20 @@ export const SoftHeader: React.FC<SoftHeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-2">
+        {uiScale && onToggleScale && (
+          <button
+            type="button"
+            onClick={onToggleScale}
+            title="Ubah skala tampilan (67% / 100%)"
+            aria-label="Ubah skala tampilan"
+            className="h-8 px-2.5 rounded-full neu-raised hover:neu-pressed active:neu-pressed text-xs font-bold text-[var(--accent)] transition-all flex items-center gap-1 cursor-pointer"
+          >
+            <span className="text-[10px] tracking-wider uppercase font-bold">
+              {uiScale}
+            </span>
+          </button>
+        )}
+
         {canInstall && onInstall && (
           <button
             type="button"
