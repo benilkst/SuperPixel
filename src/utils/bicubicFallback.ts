@@ -114,16 +114,6 @@ export function bicubicResizeTileInPlace(
       const wx2 = precompWeightsX[xBase + 2];
       const wx3 = precompWeightsX[xBase + 3];
 
-      let r = 0;
-      let g = 0;
-      let b = 0;
-
-      // Jalur 4 baris Y x 4 kolom X
-      const pY = [row0, row1, row2, row3];
-      const wY = [wy0, wy1, wy2, wy3];
-      const pX = [px0, px1, px2, px3];
-      const wX = [wx0, wx1, wx2, wx3];
-
       // Anti-Ringing: cari min & max lokal dari 4 piksel pusat tetangga terdekat
       const c00 = row1 + px1;
       const c01 = row1 + px2;
@@ -139,28 +129,40 @@ export function bicubicResizeTileInPlace(
       const minB = Math.min(srcData[c00 + 2], srcData[c01 + 2], srcData[c10 + 2], srcData[c11 + 2]);
       const maxB = Math.max(srcData[c00 + 2], srcData[c01 + 2], srcData[c10 + 2], srcData[c11 + 2]);
 
-      for (let m = 0; m < 4; m++) {
-        const rOffset = pY[m];
-        const ym = wY[m];
+      // Interpolasi skalar 4 baris x 4 kolom tanpa alokasi objek heap
+      // Baris 0
+      const r0 = srcData[row0 + px0] * wx0 + srcData[row0 + px1] * wx1 + srcData[row0 + px2] * wx2 + srcData[row0 + px3] * wx3;
+      const g0 = srcData[row0 + px0 + 1] * wx0 + srcData[row0 + px1 + 1] * wx1 + srcData[row0 + px2 + 1] * wx2 + srcData[row0 + px3 + 1] * wx3;
+      const b0 = srcData[row0 + px0 + 2] * wx0 + srcData[row0 + px1 + 2] * wx1 + srcData[row0 + px2 + 2] * wx2 + srcData[row0 + px3 + 2] * wx3;
 
-        for (let n = 0; n < 4; n++) {
-          const idx = rOffset + pX[n];
-          const w = ym * wX[n];
-          r += srcData[idx] * w;
-          g += srcData[idx + 1] * w;
-          b += srcData[idx + 2] * w;
-        }
-      }
+      // Baris 1
+      const r1 = srcData[row1 + px0] * wx0 + srcData[row1 + px1] * wx1 + srcData[row1 + px2] * wx2 + srcData[row1 + px3] * wx3;
+      const g1 = srcData[row1 + px0 + 1] * wx0 + srcData[row1 + px1 + 1] * wx1 + srcData[row1 + px2 + 1] * wx2 + srcData[row1 + px3 + 1] * wx3;
+      const b1 = srcData[row1 + px0 + 2] * wx0 + srcData[row1 + px1 + 2] * wx1 + srcData[row1 + px2 + 2] * wx2 + srcData[row1 + px3 + 2] * wx3;
+
+      // Baris 2
+      const r2 = srcData[row2 + px0] * wx0 + srcData[row2 + px1] * wx1 + srcData[row2 + px2] * wx2 + srcData[row2 + px3] * wx3;
+      const g2 = srcData[row2 + px0 + 1] * wx0 + srcData[row2 + px1 + 1] * wx1 + srcData[row2 + px2 + 1] * wx2 + srcData[row2 + px3 + 1] * wx3;
+      const b2 = srcData[row2 + px0 + 2] * wx0 + srcData[row2 + px1 + 2] * wx1 + srcData[row2 + px2 + 2] * wx2 + srcData[row2 + px3 + 2] * wx3;
+
+      // Baris 3
+      const r3 = srcData[row3 + px0] * wx0 + srcData[row3 + px1] * wx1 + srcData[row3 + px2] * wx2 + srcData[row3 + px3] * wx3;
+      const g3 = srcData[row3 + px0 + 1] * wx0 + srcData[row3 + px1 + 1] * wx1 + srcData[row3 + px2 + 1] * wx2 + srcData[row3 + px3 + 1] * wx3;
+      const b3 = srcData[row3 + px0 + 2] * wx0 + srcData[row3 + px1 + 2] * wx1 + srcData[row3 + px2 + 2] * wx2 + srcData[row3 + px3 + 2] * wx3;
+
+      const r = r0 * wy0 + r1 * wy1 + r2 * wy2 + r3 * wy3;
+      const g = g0 * wy0 + g1 * wy1 + g2 * wy2 + g3 * wy3;
+      const b = b0 * wy0 + b1 * wy1 + b2 * wy2 + b3 * wy3;
 
       // Terapkan batas anti-ringing dengan toleransi lembut 4 unit
-      const clampedR = Math.max(Math.max(0, minR - 4), Math.min(Math.min(255, maxR + 4), r));
-      const clampedG = Math.max(Math.max(0, minG - 4), Math.min(Math.min(255, maxG + 4), g));
-      const clampedB = Math.max(Math.max(0, minB - 4), Math.min(Math.min(255, maxB + 4), b));
+      const clampedR = r < minR - 4 ? minR - 4 : r > maxR + 4 ? maxR + 4 : r;
+      const clampedG = g < minG - 4 ? minG - 4 : g > maxG + 4 ? maxG + 4 : g;
+      const clampedB = b < minB - 4 ? minB - 4 : b > maxB + 4 ? maxB + 4 : b;
 
       const destIdx = destRowOffset + dx * 4;
-      destData[destIdx] = (clampedR + 0.5) | 0;
-      destData[destIdx + 1] = (clampedG + 0.5) | 0;
-      destData[destIdx + 2] = (clampedB + 0.5) | 0;
+      destData[destIdx] = clampedR < 0 ? 0 : clampedR > 255 ? 255 : (clampedR + 0.5) | 0;
+      destData[destIdx + 1] = clampedG < 0 ? 0 : clampedG > 255 ? 255 : (clampedG + 0.5) | 0;
+      destData[destIdx + 2] = clampedB < 0 ? 0 : clampedB > 255 ? 255 : (clampedB + 0.5) | 0;
       destData[destIdx + 3] = 255;
     }
   }
@@ -228,17 +230,13 @@ export function applyUnsharpMaskInPlace(
     // Hitung energi perbedaan frekuensi tinggi lokal (luminance delta)
     const lumDelta = Math.abs(diffR * 0.299 + diffG * 0.587 + diffB * 0.114);
 
-    // Masking adaptif:
-    // Jika delta sangat kecil (< 3), redam penajaman untuk mencegah noise di area flat
-    // Jika delta tinggi (garis, tekstur, mata, rambut), tajamkan secara maksimal (1.15x - 1.3x)
     let weight = baseAmount;
     if (lumDelta < 3.0) {
       weight = baseAmount * (lumDelta / 3.0) * 0.4;
     } else if (lumDelta > 20.0) {
-      weight = baseAmount * 1.05; // Dorongan ekstra untuk tepian tegas
+      weight = baseAmount * 1.05;
     }
 
-    // Mikro-kontras lokal dengan soft-limiter anti-clipping
     const sharpR = origR + diffR * weight;
     const sharpG = origG + diffG * weight;
     const sharpB = origB + diffB * weight;
@@ -246,6 +244,5 @@ export function applyUnsharpMaskInPlace(
     pixels[i] = sharpR < 0 ? 0 : sharpR > 255 ? 255 : (sharpR + 0.5) | 0;
     pixels[i + 1] = sharpG < 0 ? 0 : sharpG > 255 ? 255 : (sharpG + 0.5) | 0;
     pixels[i + 2] = sharpB < 0 ? 0 : sharpB > 255 ? 255 : (sharpB + 0.5) | 0;
-    // Alpha pixels[i + 3] tetap 255
   }
 }

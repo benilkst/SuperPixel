@@ -10,6 +10,17 @@ export default defineConfig(() => {
     plugins: [
       react(),
       tailwindcss(),
+      {
+        name: 'configure-mime-types',
+        configureServer(server) {
+          server.middlewares.use((req, res, next) => {
+            if (req.url && req.url.split('?')[0].endsWith('.onnx')) {
+              res.setHeader('Content-Type', 'application/octet-stream');
+            }
+            next();
+          });
+        },
+      },
       VitePWA({
         registerType: 'prompt',
         includeAssets: [
@@ -71,6 +82,20 @@ export default defineConfig(() => {
               },
             },
             {
+              urlPattern: /\.(?:onnx)$/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'superpixel-model-cache-v1',
+                expiration: {
+                  maxEntries: 5,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
               options: {
@@ -101,8 +126,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true,
-          type: 'module',
+          enabled: false,
         },
       }),
     ],
@@ -120,8 +144,7 @@ export default defineConfig(() => {
     server: {
       port: 3000,
       host: '0.0.0.0',
-      hmr: process.env.DISABLE_HMR !== 'true',
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      hmr: false,
     },
   };
 });

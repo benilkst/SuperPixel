@@ -3,143 +3,138 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export const MODEL_CACHE_NAME = 'superpixel-onnx-v1';
+import { MODEL_CACHE_NAME, MODEL_CACHE_KEY, DEFAULT_MODEL_URL } from '../constants/config';
 
-export async function isModelCached(modelUrl: string): Promise<boolean> {
-  if (typeof caches === 'undefined') return false;
-  try {
-    const cache = await caches.open(MODEL_CACHE_NAME);
-    const match = await cache.match(modelUrl);
-    return !!match;
-  } catch {
-    return false;
-  }
+export interface ModelDownloadProgress {
+  loadedBytes: number;
+  totalBytes: number;
+  percentage: number;
+  fromCache: boolean;
 }
 
-export async function getCachedModelBuffer(modelUrl: string): Promise<ArrayBuffer | null> {
+export async function getCachedModelBuffer(): Promise<ArrayBuffer | null> {
   if (typeof caches === 'undefined') return null;
+
   try {
     const cache = await caches.open(MODEL_CACHE_NAME);
-    const match = await cache.match(modelUrl);
-    if (match) {
-      return await match.arrayBuffer();
+    const response = await cache.match(MODEL_CACHE_KEY);
+    if (response && response.ok) {
+      return await response.arrayBuffer();
     }
-  } catch (e) {
-    console.warn('Gagal membaca cache model:', e);
+  } catch (err) {
+    console.warn('Gagal membaca cache model:', err);
   }
   return null;
 }
 
-export async function clearModelCache(): Promise<void> {
+export async function saveToCache(buffer: ArrayBuffer): Promise<void> {
   if (typeof caches === 'undefined') return;
   try {
-    await caches.delete(MODEL_CACHE_NAME);
-  } catch (e) {
-    console.warn('Gagal menghapus cache model:', e);
+    const cache = await caches.open(MODEL_CACHE_NAME);
+    // Clone buffer agar tidak terpengaruh transfer ke Web Worker
+    const cloned = buffer.slice(0);
+    const response = new Response(cloned, {
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': cloned.byteLength.toString(),
+      },
+    });
+    await cache.put(MODEL_CACHE_KEY, response);
+  } catch (err) {
+    console.warn('Gagal menyimpan model ke Cache API:', err);
   }
 }
 
-export async function checkModelStorageStatus(modelUrl: string): Promise<{
-  isCached: boolean;
-  persisted: boolean;
-}> {
-  let isCached = false;
-  let persisted = false;
+export async function fetchAndCacheModel(
+  modelUrl: string = DEFAULT_MODEL_URL,
+  onProgress?: (progress: ModelDownloadProgress) => void
+): Promise<ArrayBuffer | null> {
+  // 1. Cek apakah sudah ada di Cache API
+  const cached = await getCachedModelBuffer();
+  if (cached && cached.byteLength > 1000000) {
+    onProgress?.({
+      loadedBytes: cached.byteLength,
+      totalBytes: cached.byteLength,
+      percentage: 100,
+      fromCache: true,
+    });
+    return cached;
+  }
 
+  // 2. Unduh model dari same-origin endpoint lokal (/models/realesr-general-x4v3.onnx)
+  let response: Response | null = null;
   try {
-    isCached = await isModelCached(modelUrl);
-  } catch {}
-
-  try {
-    if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
-      persisted = await navigator.storage.persisted();
+    response = await fetch(modelUrl, { cache: 'no-cache' });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
     }
-  } catch {}
-
-  return { isCached, persisted };
-}
-
-/**
- * Mengunduh model ONNX dengan pelacakan progres langsung (streaming)
- * dan menyimpannya secara otomatis ke Cache API untuk penggunaan offline.
- */
-export async function downloadAndCacheModel(
-  modelUrl: string,
-  onProgress?: (percentage: number, loadedBytes: number, totalBytes: number) => void
-): Promise<ArrayBuffer> {
-  const resp = await fetch(modelUrl, {
-    mode: 'cors',
-    cache: 'no-store',
-  });
-
-  if (!resp.ok) {
-    throw new Error(`Gagal mengunduh model: HTTP ${resp.status} ${resp.statusText}`);
+  } catch (fetchErr) {
+    console.warn(`Gagal mengambil model dari ${modelUrl}:`, fetchErr);
+    return null;
   }
 
-  const contentLengthHeader = resp.headers.get('content-length');
-  const expectedTotalBytes = contentLengthHeader
-    ? parseInt(contentLengthHeader, 10)
-    : 4_700_000; // Standar ~4.6 MB jika header tidak tersedia
+  const contentLength = response.headers.get('content-length');
+  const totalBytes = contentLength ? parseInt(contentLength, 10) : 4871181; // ~4.87MB
 
-  if (!resp.body) {
-    const buf = await resp.arrayBuffer();
-    if (typeof caches !== 'undefined') {
-      try {
-        const cache = await caches.open(MODEL_CACHE_NAME);
-        await cache.put(
-          modelUrl,
-          new Response(buf.slice(0), {
-            headers: { 'Content-Type': 'application/octet-stream' },
-          })
-        );
-      } catch {}
-    }
-    onProgress?.(100, buf.byteLength, buf.byteLength);
-    return buf;
-  }
+  let arrayBuffer: ArrayBuffer | null = null;
 
-  const reader = resp.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let receivedBytes = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    if (value) {
-      chunks.push(value);
-      receivedBytes += value.length;
-
-      const totalForPct = Math.max(expectedTotalBytes, receivedBytes);
-      const pct = Math.min(100, Math.round((receivedBytes / totalForPct) * 100));
-      onProgress?.(pct, receivedBytes, totalForPct);
-    }
-  }
-
-  // Gabungkan seluruh chunks ke dalam satu ArrayBuffer
-  const allBytes = new Uint8Array(receivedBytes);
-  let position = 0;
-  for (const chunk of chunks) {
-    allBytes.set(chunk, position);
-    position += chunk.length;
-  }
-
-  const resultBuffer = allBytes.buffer;
-
-  // Simpan ke Cache API agar tidak diunduh ulang
-  if (typeof caches !== 'undefined') {
+  if (response.body && response.body.getReader) {
     try {
-      const cache = await caches.open(MODEL_CACHE_NAME);
-      await cache.put(
-        modelUrl,
-        new Response(resultBuffer.slice(0), {
-          headers: { 'Content-Type': 'application/octet-stream' },
-        })
-      );
-    } catch (cacheErr) {
-      console.warn('Gagal menyimpan model ke Cache API:', cacheErr);
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let loadedBytes = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        if (value) {
+          chunks.push(value);
+          loadedBytes += value.length;
+          const percentage = Math.min(100, Math.round((loadedBytes / totalBytes) * 100));
+          onProgress?.({
+            loadedBytes,
+            totalBytes,
+            percentage,
+            fromCache: false,
+          });
+        }
+      }
+
+      // Gabungkan semua chunk ke Uint8Array
+      const fullBuffer = new Uint8Array(loadedBytes);
+      let offset = 0;
+      for (const chunk of chunks) {
+        fullBuffer.set(chunk, offset);
+        offset += chunk.length;
+      }
+      arrayBuffer = fullBuffer.buffer;
+    } catch (streamErr) {
+      console.warn('Streaming chunk gagal, mencoba arrayBuffer langsung:', streamErr);
+      try {
+        const fallbackResp = await fetch(modelUrl);
+        if (fallbackResp.ok) {
+          arrayBuffer = await fallbackResp.arrayBuffer();
+        }
+      } catch (e) {
+        console.warn('Fallback arrayBuffer gagal:', e);
+      }
     }
+  } else {
+    arrayBuffer = await response.arrayBuffer();
   }
 
-  return resultBuffer;
+  if (arrayBuffer && arrayBuffer.byteLength > 1000000) {
+    // Simpan ke Cache API SEBELUM mengembalikan ke caller
+    await saveToCache(arrayBuffer);
+    onProgress?.({
+      loadedBytes: arrayBuffer.byteLength,
+      totalBytes: arrayBuffer.byteLength,
+      percentage: 100,
+      fromCache: false,
+    });
+    return arrayBuffer;
+  }
+
+  return null;
 }

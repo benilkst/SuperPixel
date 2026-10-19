@@ -1,101 +1,79 @@
 @import "tailwindcss";
 
 :root {
-  --base: #EFE8DA;
-  --accent: #0E5C5E;
-  --accent-text: #FFFFFF;
+  --bg-base: #EFE8DA;
+  --bg-surface: #E8E1D3;
+  --bg-surface-elevated: #F4EFE5;
   --text-primary: #2D2A26;
-  --text-secondary: #7A7265;
-  --border-subtle: rgba(45, 42, 38, 0.08);
-  --error: #D9483B;
-
-  /* Neumorphic Shadow Tokens - Light Mode */
-  --shadow-raised-lg: 8px 8px 16px rgba(184, 174, 157, 0.6), -8px -8px 16px rgba(255, 255, 255, 0.9);
-  --shadow-raised: 5px 5px 10px rgba(184, 174, 157, 0.5), -5px -5px 10px rgba(255, 255, 255, 0.85);
-  --shadow-raised-sm: 3px 3px 6px rgba(184, 174, 157, 0.45), -3px -3px 6px rgba(255, 255, 255, 0.8);
-  --shadow-inset: inset 3px 3px 6px rgba(184, 174, 157, 0.45), inset -3px -3px 6px rgba(255, 255, 255, 0.8);
-  --shadow-pressed: inset 2px 2px 5px rgba(184, 174, 157, 0.5), inset -2px -2px 5px rgba(255, 255, 255, 0.7);
+  --text-secondary: #7A7468;
+  --accent: #E06C47;
+  --accent-hover: #D45B34;
+  --accent-subtle: #F6DFD5;
+  --error: #D94841;
+  --success: #3E8A5E;
+  
+  --shadow-light: rgba(255, 255, 255, 0.75);
+  --shadow-dark: rgba(175, 165, 147, 0.45);
 }
 
 .dark {
-  --base: #26241F;
-  --accent: #197278;
-  --accent-text: #FFFFFF;
-  --text-primary: #EAE6DF;
-  --text-secondary: #9C9486;
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --error: #E5584A;
+  --bg-base: #26241F;
+  --bg-surface: #2E2B25;
+  --bg-surface-elevated: #36332C;
+  --text-primary: #EDE9E1;
+  --text-secondary: #9E988D;
+  --accent: #F27C56;
+  --accent-hover: #FA8C68;
+  --accent-subtle: #452E26;
+  --error: #E55C55;
+  --success: #4FAA75;
 
-  /* Neumorphic Shadow Tokens - Dark Mode */
-  --shadow-raised-lg: 8px 8px 16px #1a1815, -8px -8px 16px #323029;
-  --shadow-raised: 5px 5px 10px #1a1815, -5px -5px 10px #323029;
-  --shadow-raised-sm: 3px 3px 6px #1a1815, -3px -3px 6px #323029;
-  --shadow-inset: inset 3px 3px 6px #181714, inset -3px -3px 6px #34322a;
-  --shadow-pressed: inset 2px 2px 5px #181714, inset -2px -2px 5px #34322a;
+  --shadow-light: rgba(58, 54, 47, 0.6);
+  --shadow-dark: rgba(14, 13, 11, 0.75);
 }
 
 body {
-  background-color: var(--base);
+  background-color: var(--bg-base);
   color: var(--text-primary);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.neu-base {
-  background-color: var(--base);
-}
-
-.neu-raised-lg {
-  background-color: var(--base);
-  box-shadow: var(--shadow-raised-lg);
-}
-
+/* Soft Neumorphic Shadows */
 .neu-raised {
-  background-color: var(--base);
-  box-shadow: var(--shadow-raised);
+  background: var(--bg-surface);
+  box-shadow: 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
 }
 
 .neu-raised-sm {
-  background-color: var(--base);
-  box-shadow: var(--shadow-raised-sm);
+  background: var(--bg-surface);
+  box-shadow: 2px 2px 6px var(--shadow-dark), -2px -2px 6px var(--shadow-light);
 }
 
 .neu-inset {
-  background-color: var(--base);
-  box-shadow: var(--shadow-inset);
+  background: var(--bg-surface);
+  box-shadow: inset 3px 3px 6px var(--shadow-dark), inset -3px -3px 6px var(--shadow-light);
+}
+
+.neu-inset-deep {
+  background: var(--bg-surface);
+  box-shadow: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light);
 }
 
 .neu-pressed {
-  background-color: var(--base);
-  box-shadow: var(--shadow-pressed);
+  background: var(--bg-surface);
+  box-shadow: inset 2px 2px 5px var(--shadow-dark), inset -2px -2px 5px var(--shadow-light);
 }
 
 .neu-btn-primary {
-  background-color: var(--accent);
-  color: var(--accent-text);
-  box-shadow: var(--shadow-raised-sm);
-  transition: all 0.15s ease;
+  background: var(--accent);
+  color: #FFFFFF;
+  box-shadow: 3px 3px 8px var(--shadow-dark), -2px -2px 6px var(--shadow-light);
 }
 
 .neu-btn-primary:active {
-  box-shadow: var(--shadow-pressed);
-  transform: scale(0.98);
-}
-
-.neu-btn-secondary {
-  background-color: var(--base);
-  color: var(--text-primary);
-  box-shadow: var(--shadow-raised);
-  border: 1px solid var(--border-subtle);
-  transition: all 0.15s ease;
-}
-
-.neu-btn-secondary:active {
-  box-shadow: var(--shadow-pressed);
-  transform: scale(0.98);
-}
-
-.font-tabular {
-  font-variant-numeric: tabular-nums;
+  box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.35);
+  transform: translateY(1px);
 }

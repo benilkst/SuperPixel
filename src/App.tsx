@@ -3,815 +3,459 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SoftHeader } from './components/SoftHeader';
 import { SoftStepper, StepNumber } from './components/SoftStepper';
+import { ImageUploader, LoadedImageInfo } from './components/ImageUploader';
 import { StateSelect } from './components/StateSelect';
-import { StateProcess } from './components/StateProcess';
+import { StateProcessing } from './components/StateProcessing';
 import { StateResult } from './components/StateResult';
-import { SoftActionBar } from './components/SoftActionBar';
-import { SoftBanner } from './components/SoftBanner';
-import { SoftModal } from './components/SoftModal';
-import { SoftToast, ToastItem } from './components/SoftToast';
-import { LoadedImageInfo } from './components/ImageUploader';
-import { MODEL_URL, DEFAULT_TILE_SIZE, DEFAULT_TILE_OVERLAP } from './constants/config';
-import { calculateOutputDimensions, ScaleCalculation } from './utils/canvasLimit';
-import { loadImageWithExifOrientation } from './utils/exif';
 import { UpscaleMode, WorkerOutgoingMessage } from './types/upscaler';
-import { registerSW } from 'virtual:pwa-register';
-import { usePWA, IOSInstallBanner } from './components/PWAInstallBanner';
-import { checkModelStorageStatus, clearModelCache, isModelCached } from './utils/modelCache';
+import { loadImageWithExifOrientation } from './utils/exif';
+import { computeOutputDimensions } from './utils/canvasLimit';
+import { getCachedModelBuffer, fetchAndCacheModel } from './utils/modelCache';
+import { DEFAULT_MODEL_URL } from './constants/config';
 
-interface ProcessingResult {
-  outputCanvas: HTMLCanvasElement;
-  enhancedUrl: string;
-  actualMode: UpscaleMode;
-  executionProvider: string;
-  elapsedMs: number;
-  width: number;
-  height: number;
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
-export default function App() {
-  // Mode Gelap / Terang (Mengikuti prefers-color-scheme secara default)
+export function App() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return (
-        window.matchMedia &&
+        localStorage.getItem('superpixel_theme') === 'dark' ||
         window.matchMedia('(prefers-color-scheme: dark)').matches
       );
     }
     return false;
   });
 
+  const [step, setStep] = useState<StepNumber>(1);
+  const [loadedImage, setLoadedImage] = useState<LoadedImageInfo | null>(null);
+  const [scale, setScale] = useState<2 | 4>(4);
+  const [mode, setMode] = useState<UpscaleMode>('ai');
+  const [limit4K, setLimit4K] = useState<boolean>(true);
+  const [isModelCached, setIsModelCached] = useState<boolean>(false);
+  const [errorNotification, setErrorNotification] = useState<string | null>(null);
+
+  // Processing state
+  const [progressPct, setProgressPct] = useState(0);
+  const [currentTile, setCurrentTile] = useState(0);
+  const [totalTiles, setTotalTiles] = useState(1);
+  const [statusText, setStatusText] = useState('');
+  const [phase, setPhase] = useState('');
+  const [isDownloadingModel, setIsDownloadingModel] = useState(false);
+  const [downloadLoadedMb, setDownloadLoadedMb] = useState(0);
+  const [downloadTotalMb, setDownloadTotalMb] = useState(0);
+
+  // Result state
+  const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const [resultBlob, setResultBlob] = useState<Blob | null>(null);
+  const [outputWidth, setOutputWidth] = useState(0);
+  const [outputHeight, setOutputHeight] = useState(0);
+  const [effectiveScale, setEffectiveScale] = useState(4);
+  const [executionProvider, setExecutionProvider] = useState('');
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  // PWA install prompt
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+  const workerRef = useRef<Worker | null>(null);
+
+  // Sync theme
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
+      localStorage.setItem('superpixel_theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
+      localStorage.setItem('superpixel_theme', 'light');
     }
   }, [isDarkMode]);
 
-  // Keadaan Aplikasi
-  const [loadedImage, setLoadedImage] = useState<LoadedImageInfo | null>(null);
-  const [scale, setScale] = useState<2 | 4>(2);
-  const [limit4K, setLimit4K] = useState<boolean>(true);
-  const [allowExtremeResolution, setAllowExtremeResolution] = useState<boolean>(false);
-  const [downloadFormat, setDownloadFormat] = useState<'jpeg' | 'png'>('jpeg');
-  const [jpegQuality, setJpegQuality] = useState<number>(92);
-  const [mode, setMode] = useState<UpscaleMode>('ai');
-
-  const [modelUrl, setModelUrl] = useState<string>(MODEL_URL);
-  const [customModelFile, setCustomModelFile] = useState<File | null>(null);
-
-  // Status Pemrosesan
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [progress, setProgress] = useState({
-    currentTile: 0,
-    totalTiles: 0,
-    percentage: 0,
-    statusText: 'Inisialisasi sistem...',
-    phase: '',
-  });
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
-
-  // Hasil
-  const [result, setResult] = useState<ProcessingResult | null>(null);
-  const [estimatedSizeStr, setEstimatedSizeStr] = useState<string>('');
-
-  // Umpan Balik: Banner, Modal, dan Toast
-  const [bannerNotice, setBannerNotice] = useState<{
-    type?: 'teal' | 'error';
-    title?: string;
-    message: string;
-    actionButton?: React.ReactNode;
-  } | null>(null);
-
-  const [isCancelModalOpen, setIsCancelModalOpen] = useState<boolean>(false);
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  // Ref Worker, Timer, & URL Pelacak Memori
-  const workerRef = useRef<Worker | null>(null);
-  const timerRef = useRef<number | null>(null);
-  const lastBlobUrlRef = useRef<string | null>(null);
-
-  // PWA Hook: Deteksi iOS Safari & Prompt Install Chromium/Android
-  const { isStandalone, isIOS, canInstall, promptInstall } = usePWA();
-  const [isModelStored, setIsModelStored] = useState<boolean>(false);
-
-  const showToast = (
-    message: string,
-    type: 'success' | 'info' | 'error' = 'info',
-    action?: { label: string; onAction: () => void; duration?: number }
-  ) => {
-    const id = Date.now().toString() + Math.random().toString().slice(2, 6);
-    setToasts((prev) => [
-      ...prev,
-      {
-        id,
-        message,
-        type,
-        actionLabel: action?.label,
-        onAction: action?.onAction,
-      },
-    ]);
-    const duration = action?.duration ?? (action ? 12000 : 3500);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, duration);
-  };
-
-  // Status penyimpanan model offline
-  const refreshModelStorageStatus = async () => {
-    const status = await checkModelStorageStatus(modelUrl);
-    setIsModelStored(status.isCached);
-  };
-
+  // Check model cache on mount
   useEffect(() => {
-    refreshModelStorageStatus();
-  }, [modelUrl]);
-
-  const handleClearModelStorage = async () => {
-    await clearModelCache();
-    setIsModelStored(false);
-    showToast('Data model tersimpan telah dihapus.', 'info');
-  };
-
-  const isProcessingRef = useRef(isProcessing);
-  useEffect(() => {
-    isProcessingRef.current = isProcessing;
-  }, [isProcessing]);
-
-  useEffect(() => {
-    // Upaya terbaik persistensi penyimpanan agar tidak dihapus otomatis oleh iOS
-    if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
-      navigator.storage.persist().catch(() => {});
-    }
-
-    // Registrasi PWA Service Worker (Workbox prompt mode)
-    try {
-      const updateSW = registerSW({
-        onNeedRefresh() {
-          showToast('Versi baru tersedia', 'info', {
-            label: 'Muat ulang',
-            onAction: () => {
-              updateSW(true);
-            },
-            duration: 15000,
-          });
-        },
-        onOfflineReady() {
-          console.log('SuperPixel siap dijalankan secara offline.');
-        },
-        onRegisterError(error: unknown) {
-          console.warn('Pendaftaran service worker PWA:', error);
-        },
-      });
-    } catch (err) {
-      console.warn('Gagal memuat registerSW:', err);
-    }
+    getCachedModelBuffer().then((buf) => {
+      setIsModelCached(buf !== null && buf.byteLength > 1000000);
+    });
   }, []);
 
-  // Kalkulasi Dimensi Output dan Batas Memori
-  const calculation: ScaleCalculation | null = useMemo(() => {
-    if (!loadedImage) return null;
-    return calculateOutputDimensions(
-      loadedImage.width,
-      loadedImage.height,
-      scale,
-      limit4K,
-      allowExtremeResolution,
-      DEFAULT_TILE_SIZE,
-      DEFAULT_TILE_OVERLAP,
-      mode === 'ai'
-    );
-  }, [loadedImage, scale, limit4K, allowExtremeResolution, mode]);
-
-  // Perbarui estimasi ukuran berkas output
+  // Listen for PWA beforeinstallprompt
   useEffect(() => {
-    if (!result?.outputCanvas) {
-      setEstimatedSizeStr('');
-      return;
-    }
-    const totalPx = result.width * result.height;
-    if (downloadFormat === 'png') {
-      const mb = (totalPx * 4 * 0.45) / (1024 * 1024);
-      setEstimatedSizeStr(`${mb.toFixed(1)} MB`);
-    } else {
-      const factor = (jpegQuality / 100) * 0.18;
-      const mb = (totalPx * 4 * factor) / (1024 * 1024);
-      setEstimatedSizeStr(`${mb.toFixed(1)} MB`);
-    }
-  }, [result, downloadFormat, jpegQuality]);
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    };
+  }, []);
 
-  // Muat dan periksa berkas gambar
-  const handleImageSelected = async (file: File) => {
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
     try {
-      setBannerNotice(null);
-      if (lastBlobUrlRef.current) {
-        try {
-          URL.revokeObjectURL(lastBlobUrlRef.current);
-        } catch {}
-        lastBlobUrlRef.current = null;
+      await deferredPrompt.prompt();
+      const choice = await deferredPrompt.userChoice;
+      if (choice.outcome === 'accepted') {
+        setDeferredPrompt(null);
       }
-      setResult(null);
+    } catch (err) {
+      console.warn('Install prompt error:', err);
+    }
+  };
 
-      const fileName = file.name;
+  const handleImageSelected = async (file: File) => {
+    setErrorNotification(null);
+    try {
       const { canvas, width, height } = await loadImageWithExifOrientation(file);
-
-      // Buat URL pratinjau yang ringan
-      const previewUrl = URL.createObjectURL(file);
-      lastBlobUrlRef.current = previewUrl;
+      const previewUrl = canvas.toDataURL('image/jpeg', 0.85);
 
       setLoadedImage({
         file,
-        fileName,
+        fileName: file.name,
         fileSizeBytes: file.size,
         width,
         height,
         canvas,
         previewUrl,
       });
-
-      showToast(`Foto "${fileName}" berhasil dimuat.`, 'success');
+      setStep(2);
     } catch (err) {
-      setBannerNotice({
-        type: 'error',
-        title: 'Gagal Memuat Gambar',
-        message:
-          err instanceof Error
-            ? err.message
-            : 'Format berkas tidak terbaca. Harap pilih gambar JPEG, PNG, atau WebP.',
-      });
+      setErrorNotification((err as Error).message || 'Gagal memuat gambar');
     }
   };
 
-  // Mulai Proses Upscaling
-  const handleStartProcess = async () => {
-    if (!loadedImage || !calculation) return;
-
-    if (calculation.exceedsSafariLimit && !allowExtremeResolution) {
-      setBannerNotice({
-        type: 'teal',
-        title: 'Resolusi Melebihi Batas Standar Safari',
-        message: `Output ${calculation.outputWidth}×${calculation.outputHeight} px (${(calculation.totalPixels / 1_000_000).toFixed(1)} MP) melampaui batas standar Safari iOS (~16.7 MP). Aktifkan Mode Resolusi Ekstrem untuk tetap memprosesnya.`,
-        actionButton: (
-          <button
-            type="button"
-            onClick={() => {
-              setAllowExtremeResolution(true);
-              setBannerNotice(null);
-              showToast('Mode Resolusi Ekstrem diaktifkan. Silakan tekan Mulai Perbesar.', 'info');
-            }}
-            className="h-8 px-3.5 rounded-full neu-btn-primary text-[11px] font-bold cursor-pointer inline-flex items-center justify-center gap-1.5 shadow-md"
-          >
-            <span>Aktifkan Mode Ekstrem</span>
-          </button>
-        ),
-      });
-      return;
+  const handleClearImage = () => {
+    if (loadedImage?.previewUrl) {
+      URL.revokeObjectURL(loadedImage.previewUrl);
     }
-
-    // Periksa status offline & ketersediaan model sebelum memulai
-    if (mode === 'ai' && !customModelFile) {
-      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
-      const cached = await isModelCached(modelUrl);
-      if (!cached && !isOnline) {
-        setBannerNotice({
-          type: 'error',
-          title: 'Perangkat Sedang Offline',
-          message:
-            'Cache model AI belum tersimpan di perangkat dan koneksi internet tidak tersedia. Sambungkan ke internet untuk mengunduh model, gunakan mode Ultra-HD Super-Res, atau pilih file model .onnx lokal.',
-        });
-        return;
-      }
+    if (resultUrl) {
+      URL.revokeObjectURL(resultUrl);
     }
-
-    setIsProcessing(true);
-    setResult(null);
-    setBannerNotice(null);
-    setElapsedSeconds(0);
-    setProgress({
-      currentTile: 0,
-      totalTiles: calculation.totalTiles,
-      percentage: 0,
-      statusText: 'Menyiapkan pemrosesan petak...',
-      phase: 'starting',
-    });
-
-    const startTime = performance.now();
-    timerRef.current = window.setInterval(() => {
-      setElapsedSeconds((performance.now() - startTime) / 1000);
-    }, 100);
-
-    try {
-      const srcCtx = loadedImage.canvas.getContext('2d', { willReadFrequently: true });
-      if (!srcCtx) throw new Error('Gagal membaca konteks 2D kanvas sumber');
-
-      let sourceImageData: ImageData | null = srcCtx.getImageData(
-        0,
-        0,
-        loadedImage.width,
-        loadedImage.height
-      );
-
-      // Ambil ArrayBuffer untuk transfer hemat memori
-      const sourceBuffer = sourceImageData.data.buffer.slice(0);
-      sourceImageData = null; // Segera bebaskan memori di thread utama
-
-      let customModelBuffer: ArrayBuffer | undefined;
-      if (customModelFile) {
-        customModelBuffer = await customModelFile.arrayBuffer();
-      }
-
-      const worker = new Worker(
-        new URL('./workers/upscaler.worker.ts', import.meta.url),
-        { type: 'module' }
-      );
-      workerRef.current = worker;
-
-      worker.onmessage = (e: MessageEvent<WorkerOutgoingMessage>) => {
-        const msg = e.data;
-
-        if (msg.type === 'PROGRESS') {
-          setProgress({
-            currentTile: msg.payload.currentTile,
-            totalTiles: msg.payload.totalTiles,
-            percentage: msg.payload.percentage,
-            statusText: msg.payload.statusText,
-            phase: msg.payload.phase,
-          });
-        } else if (msg.type === 'MODE_FALLBACK') {
-          const isCors = msg.payload.isCorsError || msg.payload.reason.includes('CORS');
-          const shouldOfferLocal =
-            msg.payload.offerLocalModelFile ||
-            isCors ||
-            msg.payload.reason.includes('.onnx');
-          setBannerNotice({
-            type: 'teal',
-            title: isCors ? 'Pemuatan Model Gagal (Mode Ultra-HD Aktif)' : 'Mode Ultra-HD Super-Resolution Aktif',
-            message: msg.payload.reason,
-            actionButton: shouldOfferLocal ? (
-              <label className="h-8 px-3 rounded-full neu-btn-primary text-[11px] font-bold cursor-pointer inline-flex items-center justify-center">
-                <span>Pilih File .onnx dari Perangkat</span>
-                <input
-                  type="file"
-                  accept=".onnx"
-                  onChange={(ev) => {
-                    const f = ev.target.files?.[0];
-                    if (f) {
-                      setCustomModelFile(f);
-                      showToast(`Model lokal "${f.name}" terpasang.`, 'success');
-                    }
-                  }}
-                  className="hidden"
-                />
-              </label>
-            ) : undefined,
-          });
-        } else if (msg.type === 'SUCCESS') {
-          if (timerRef.current) clearInterval(timerRef.current);
-
-          const {
-            outputBuffer,
-            outputWidth,
-            outputHeight,
-            actualMode,
-            executionProvider,
-            elapsedMs,
-          } = msg.payload;
-
-          const outCanvas = document.createElement('canvas');
-          outCanvas.width = outputWidth;
-          outCanvas.height = outputHeight;
-          const outCtx = outCanvas.getContext('2d');
-          if (outCtx) {
-            const outPixels = new Uint8ClampedArray(outputBuffer);
-            const imgData = new ImageData(outPixels, outputWidth, outputHeight);
-            outCtx.putImageData(imgData, 0, 0);
-          }
-
-          // Segera tutup worker agar memori heap-nya dibebaskan sebelum membuat blob
-          if (workerRef.current) {
-            workerRef.current.terminate();
-            workerRef.current = null;
-          }
-
-          outCanvas.toBlob(
-            (blob) => {
-              if (!blob) return;
-
-              if (lastBlobUrlRef.current) {
-                try {
-                  URL.revokeObjectURL(lastBlobUrlRef.current);
-                } catch {}
-              }
-
-              const enhancedUrl = URL.createObjectURL(blob);
-              lastBlobUrlRef.current = enhancedUrl;
-
-              setResult({
-                outputCanvas: outCanvas,
-                enhancedUrl,
-                actualMode,
-                executionProvider,
-                elapsedMs,
-                width: outputWidth,
-                height: outputHeight,
-              });
-
-              setIsProcessing(false);
-              showToast('Gambar berhasil diperbesar!', 'success');
-              refreshModelStorageStatus();
-            },
-            'image/jpeg',
-            0.92
-          );
-        } else if (msg.type === 'ERROR') {
-          if (timerRef.current) clearInterval(timerRef.current);
-          setIsProcessing(false);
-          setBannerNotice({
-            type: 'error',
-            title: 'Kesalahan Pemrosesan',
-            message: msg.payload.message || 'Pemrosesan petak gagal diselesaikan.',
-          });
-          if (workerRef.current) {
-            workerRef.current.terminate();
-            workerRef.current = null;
-          }
-        } else if (msg.type === 'CANCELLED') {
-          if (timerRef.current) clearInterval(timerRef.current);
-          setIsProcessing(false);
-          if (workerRef.current) {
-            workerRef.current.terminate();
-            workerRef.current = null;
-          }
-          showToast('Pemrosesan dibatalkan.', 'info');
-        }
-      };
-
-      // Fungsi pemrosesan standar in-thread jika worker mengalami kendala
-      const executeMainThreadFallback = (reason?: string) => {
-        try {
-          if (timerRef.current) clearInterval(timerRef.current);
-          if (workerRef.current) {
-            workerRef.current.terminate();
-            workerRef.current = null;
-          }
-
-          setProgress({
-            currentTile: 1,
-            totalTiles: 1,
-            percentage: 60,
-            statusText: 'Beralih ke pemrosesan standar...',
-            phase: 'processing',
-          });
-
-          const outCanvas = document.createElement('canvas');
-          outCanvas.width = calculation.outputWidth;
-          outCanvas.height = calculation.outputHeight;
-          const outCtx = outCanvas.getContext('2d', { willReadFrequently: true });
-          if (!outCtx) throw new Error('Konteks kanvas fallback tidak tersedia');
-
-          outCtx.imageSmoothingEnabled = true;
-          outCtx.imageSmoothingQuality = 'high';
-          outCtx.drawImage(
-            loadedImage.canvas,
-            0,
-            0,
-            calculation.outputWidth,
-            calculation.outputHeight
-          );
-
-          outCanvas.toBlob(
-            (blob) => {
-              if (!blob) {
-                setIsProcessing(false);
-                setBannerNotice({
-                  type: 'error',
-                  title: 'Gagal Memproses Gambar',
-                  message: 'Tidak dapat menghasilkan output kanvas.',
-                });
-                return;
-              }
-
-              const enhancedUrl = URL.createObjectURL(blob);
-              lastBlobUrlRef.current = enhancedUrl;
-              const elapsedMs = Math.round(performance.now() - startTime);
-
-              setResult({
-                outputCanvas: outCanvas,
-                enhancedUrl,
-                actualMode: 'algorithmic',
-                executionProvider: 'Mesin Ultra-HD Detail (Anti-Ringing Spline)',
-                elapsedMs,
-                width: calculation.outputWidth,
-                height: calculation.outputHeight,
-              });
-
-              setIsProcessing(false);
-              showToast(
-                'Thread latar belakang dialihkan ke pemrosesan standar kanvas.',
-                'info'
-              );
-            },
-            'image/jpeg',
-            0.92
-          );
-        } catch (fallbackErr) {
-          setIsProcessing(false);
-          setBannerNotice({
-            type: 'error',
-            title: 'Kendala Pemrosesan',
-            message:
-              reason ||
-              (fallbackErr instanceof Error
-                ? fallbackErr.message
-                : 'Pemrosesan cadangan menemui kendala.'),
-          });
-        }
-      };
-
-      worker.onerror = (err) => {
-        console.warn('Worker onerror event:', err);
-        executeMainThreadFallback();
-      };
-
-      // Kirim ArrayBuffer dengan transfer list untuk ZERO COPY
-      worker.postMessage(
-        {
-          type: 'START_UPSCALE',
-          payload: {
-            config: {
-              inputWidth: loadedImage.width,
-              inputHeight: loadedImage.height,
-              requestedScale: scale,
-              effectiveScale: calculation.effectiveScale,
-              outputWidth: calculation.outputWidth,
-              outputHeight: calculation.outputHeight,
-              limit4K,
-              tileSize: DEFAULT_TILE_SIZE,
-              overlap: DEFAULT_TILE_OVERLAP,
-              mode,
-              modelUrl: modelUrl.trim() || undefined,
-              customModelBuffer,
-            },
-            sourceBuffer,
-            sourceWidth: loadedImage.width,
-            sourceHeight: loadedImage.height,
-          },
-        },
-        [sourceBuffer]
-      );
-    } catch (err) {
-      if (timerRef.current) clearInterval(timerRef.current);
-      console.warn('Gagal menginisialisasi worker, beralih ke kanvas standar:', err);
-      try {
-        const outCanvas = document.createElement('canvas');
-        outCanvas.width = calculation.outputWidth;
-        outCanvas.height = calculation.outputHeight;
-        const outCtx = outCanvas.getContext('2d', { willReadFrequently: true });
-        if (outCtx) {
-          outCtx.imageSmoothingEnabled = true;
-          outCtx.imageSmoothingQuality = 'high';
-          outCtx.drawImage(
-            loadedImage.canvas,
-            0,
-            0,
-            calculation.outputWidth,
-            calculation.outputHeight
-          );
-          outCanvas.toBlob(
-            (blob) => {
-              if (blob) {
-                const enhancedUrl = URL.createObjectURL(blob);
-                lastBlobUrlRef.current = enhancedUrl;
-                setResult({
-                  outputCanvas: outCanvas,
-                  enhancedUrl,
-                  actualMode: 'algorithmic',
-                  executionProvider: 'Mesin Ultra-HD Detail (Anti-Ringing Spline)',
-                  elapsedMs: Math.round(performance.now() - startTime),
-                  width: calculation.outputWidth,
-                  height: calculation.outputHeight,
-                });
-                setIsProcessing(false);
-                showToast('Pemrosesan selesai dengan kanvas standar.', 'info');
-              } else {
-                setIsProcessing(false);
-              }
-            },
-            'image/jpeg',
-            0.92
-          );
-          return;
-        }
-      } catch {}
-      setIsProcessing(false);
-      setBannerNotice({
-        type: 'error',
-        title: 'Gagal Memulai',
-        message: err instanceof Error ? err.message : 'Terjadi kendala saat memulai.',
-      });
-    }
+    setLoadedImage(null);
+    setResultUrl(null);
+    setResultBlob(null);
+    setErrorNotification(null);
+    setStep(1);
   };
 
-  // Konfirmasi Batal
-  const handleConfirmCancel = () => {
-    setIsCancelModalOpen(false);
-    if (timerRef.current) clearInterval(timerRef.current);
+  const handleCancelProcess = () => {
     if (workerRef.current) {
       workerRef.current.postMessage({ type: 'CANCEL' });
       workerRef.current.terminate();
       workerRef.current = null;
     }
-    setIsProcessing(false);
-    showToast('Pemrosesan dibatalkan dan memori dibersihkan.', 'info');
+    setIsDownloadingModel(false);
+    setStep(2);
   };
 
-  // Unduh Berkas
-  const handleDownload = () => {
-    if (!result?.outputCanvas || !loadedImage) return;
+  const handleStartProcess = async () => {
+    if (!loadedImage) return;
 
-    const mime = downloadFormat === 'png' ? 'image/png' : 'image/jpeg';
-    const ext = downloadFormat === 'png' ? 'png' : 'jpg';
-    const q = downloadFormat === 'png' ? undefined : jpegQuality / 100;
+    setErrorNotification(null);
+    setStep(3);
+    setProgressPct(0);
+    setCurrentTile(0);
+    setTotalTiles(1);
+    setStatusText('Menyiapkan petak kanvas hemat memori...');
+    setPhase('Persiapan');
 
-    result.outputCanvas.toBlob(
-      (blob) => {
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        const baseName = loadedImage.fileName.replace(/\.[^/.]+$/, '');
-        link.download = `${baseName}_x${scale}.${ext}`;
-        link.href = url;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
-        showToast(`Berkas ${link.download} berhasil diunduh!`, 'success');
+    const dim = computeOutputDimensions(loadedImage.width, loadedImage.height, scale, limit4K);
+    setEffectiveScale(dim.effectiveScale);
+    setOutputWidth(dim.outputWidth);
+    setOutputHeight(dim.outputHeight);
+
+    let customModelBuffer: ArrayBuffer | undefined = undefined;
+
+    // Jika mode AI dipilih, coba muat model lokal atau cache
+    if (mode === 'ai') {
+      try {
+        setIsDownloadingModel(true);
+        setPhase('Pemeriksaan Model');
+        setStatusText('Memeriksa kesiapan model AI...');
+
+        const fetched = await fetchAndCacheModel(DEFAULT_MODEL_URL, (p) => {
+          if (!p.fromCache) {
+            setIsDownloadingModel(true);
+            setDownloadLoadedMb(p.loadedBytes / (1024 * 1024));
+            setDownloadTotalMb(p.totalBytes / (1024 * 1024));
+            setProgressPct(p.percentage);
+            setStatusText(
+              `Mengunduh model Real-ESRGAN (${(p.loadedBytes / (1024 * 1024)).toFixed(1)} / ${(
+                p.totalBytes /
+                (1024 * 1024)
+              ).toFixed(1)} MB)`
+            );
+          }
+        });
+
+        if (fetched && fetched.byteLength > 1000000) {
+          customModelBuffer = fetched;
+          setIsModelCached(true);
+        } else {
+          setPhase('Mesin Ultra-HD Detail');
+          setStatusText('Beralih ke Mesin Ultra-HD Detail (bebas reload)...');
+        }
+      } catch (dlErr) {
+        console.info('Informasi model AI:', dlErr);
+        setPhase('Mesin Ultra-HD Detail');
+        setStatusText('Menggunakan Mesin Ultra-HD Detail (bebas reload)...');
+      } finally {
+        setIsDownloadingModel(false);
+      }
+    }
+
+    // Ambil pixel sumber dari canvas
+    const srcCtx = loadedImage.canvas.getContext('2d', { willReadFrequently: true });
+    if (!srcCtx) {
+      setErrorNotification('Konteks kanvas 2D tidak tersedia.');
+      setStep(2);
+      return;
+    }
+
+    const sourceImageData = srcCtx.getImageData(0, 0, loadedImage.width, loadedImage.height);
+    const sourceBuffer = sourceImageData.data.buffer.slice(0);
+
+    // Inisialisasi Web Worker
+    const worker = new Worker(new URL('./workers/upscaler.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    workerRef.current = worker;
+
+    worker.onmessage = (e: MessageEvent<WorkerOutgoingMessage>) => {
+      const msg = e.data;
+
+      if (msg.type === 'PROGRESS') {
+        setProgressPct(msg.payload.percentage);
+        setCurrentTile(msg.payload.currentTile);
+        setTotalTiles(msg.payload.totalTiles);
+        setStatusText(msg.payload.statusText);
+        setPhase(msg.payload.phase);
+      } else if (msg.type === 'MODE_FALLBACK') {
+        console.info('Pemberitahuan mode fallback:', msg.payload.reason);
+      } else if (msg.type === 'SUCCESS') {
+        const { outputBuffer, outputWidth: outW, outputHeight: outH, executionProvider: prov, elapsedMs: elapsed } =
+          msg.payload;
+
+        // Buat kanvas keluaran dan konversi ke Blob
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = outW;
+        outCanvas.height = outH;
+        const outCtx = outCanvas.getContext('2d');
+
+        if (outCtx) {
+          const outPixels = new Uint8ClampedArray(outputBuffer);
+          const imgData = new ImageData(outPixels, outW, outH);
+          outCtx.putImageData(imgData, 0, 0);
+        }
+
+        // Hentikan worker segera untuk membebaskan heap memory
+        if (workerRef.current) {
+          workerRef.current.terminate();
+          workerRef.current = null;
+        }
+
+        // Konversi ke Blob dengan fallback aman jika PNG gagal karena batas memori
+        const saveBlob = (blob: Blob | null) => {
+          if (blob) {
+            const url = URL.createObjectURL(blob);
+            setResultUrl(url);
+            setResultBlob(blob);
+            setOutputWidth(outW);
+            setOutputHeight(outH);
+            setExecutionProvider(prov);
+            setElapsedMs(elapsed);
+            setStep(4);
+            // Bebaskan memori GPU kanvas
+            outCanvas.width = 0;
+            outCanvas.height = 0;
+          } else {
+            // Coba fallback ke JPEG jika PNG toBlob menghasilkan null
+            outCanvas.toBlob((jpgBlob) => {
+              if (jpgBlob) {
+                const url = URL.createObjectURL(jpgBlob);
+                setResultUrl(url);
+                setResultBlob(jpgBlob);
+                setOutputWidth(outW);
+                setOutputHeight(outH);
+                setExecutionProvider(prov);
+                setElapsedMs(elapsed);
+                setStep(4);
+              } else {
+                setErrorNotification('Gagal membuat file citra keluaran karena batasan memori peramban.');
+                setStep(2);
+              }
+              outCanvas.width = 0;
+              outCanvas.height = 0;
+            }, 'image/jpeg', 0.95);
+          }
+        };
+
+        outCanvas.toBlob(saveBlob, 'image/png');
+      } else if (msg.type === 'ERROR') {
+        setErrorNotification(`Kesalahan pemrosesan: ${msg.payload.message}`);
+        if (workerRef.current) {
+          workerRef.current.terminate();
+          workerRef.current = null;
+        }
+        setStep(2);
+      } else if (msg.type === 'CANCELLED') {
+        setStep(2);
+      }
+    };
+
+    worker.onerror = (err) => {
+      console.error('Worker error:', err);
+      setErrorNotification('Terjadi kendala pada pemrosesan latar belakang. Silakan coba kembali.');
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+      setStep(2);
+    };
+
+    // Kirim pekerjaan ke worker
+    worker.postMessage(
+      {
+        type: 'START_UPSCALE',
+        payload: {
+          config: {
+            inputWidth: loadedImage.width,
+            inputHeight: loadedImage.height,
+            requestedScale: scale,
+            effectiveScale: dim.effectiveScale,
+            outputWidth: dim.outputWidth,
+            outputHeight: dim.outputHeight,
+            limit4K,
+            tileSize: 128,
+            overlap: 16,
+            mode,
+            modelUrl: DEFAULT_MODEL_URL,
+            customModelBuffer,
+          },
+          sourceBuffer,
+          sourceWidth: loadedImage.width,
+          sourceHeight: loadedImage.height,
+        },
       },
-      mime,
-      q
+      customModelBuffer ? [sourceBuffer, customModelBuffer] : [sourceBuffer]
     );
   };
 
-  const handleReset = () => {
-    if (lastBlobUrlRef.current) {
-      try {
-        URL.revokeObjectURL(lastBlobUrlRef.current);
-      } catch {}
-      lastBlobUrlRef.current = null;
-    }
-    setResult(null);
-    setLoadedImage(null);
-    setBannerNotice(null);
-  };
-
-  // Tentukan state aplikasi dan stepper aktif
-  const appState: 'select' | 'process' | 'result' = isProcessing
-    ? 'process'
-    : result
-    ? 'result'
-    : 'select';
-
-  const currentStep: StepNumber =
-    appState === 'result'
-      ? 4
-      : appState === 'process'
-      ? 3
-      : loadedImage
-      ? 2
-      : 1;
-
   return (
-    <div className="min-h-[100dvh] flex flex-col justify-between neu-base transition-colors duration-200">
-      {/* Toast Notification Stack */}
-      <SoftToast
-        toasts={toasts}
-        onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
-      />
+    <div className="min-h-screen flex flex-col justify-between max-w-xl mx-auto pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+      <div className="flex flex-col gap-3">
+        {/* Header */}
+        <SoftHeader
+          isDarkMode={isDarkMode}
+          onToggleTheme={() => setIsDarkMode((d) => !d)}
+          canInstall={!!deferredPrompt}
+          onInstall={handleInstallApp}
+        />
 
-      {/* Confirmation Modal */}
-      <SoftModal
-        isOpen={isCancelModalOpen}
-        title="Batalkan Pemrosesan?"
-        message="Pemrosesan petak yang sedang berjalan akan dihentikan dan seluruh alokasi memori kerja akan segera dibebaskan."
-        confirmLabel="Ya, Batalkan"
-        cancelLabel="Lanjutkan"
-        isDestructive={true}
-        onConfirm={handleConfirmCancel}
-        onCancel={() => setIsCancelModalOpen(false)}
-      />
+        {/* Stepper */}
+        <div className="px-4">
+          <SoftStepper currentStep={step} />
+        </div>
 
-      {/* Header Soft UI */}
-      <SoftHeader
-        isDarkMode={isDarkMode}
-        onToggleTheme={() => setIsDarkMode(!isDarkMode)}
-        canInstall={canInstall}
-        onInstall={promptInstall}
-      />
-
-      {/* Konten Utama */}
-      <main className="flex-1 max-w-md mx-auto w-full px-4 py-2 flex flex-col gap-4">
-        {/* Banner Petunjuk Pemasangan Safari iOS */}
-        <IOSInstallBanner isStandalone={isStandalone} isIOS={isIOS} />
-
-        {/* Stepper 4 Langkah */}
-        <SoftStepper currentStep={currentStep} />
-
-        {/* Banner Peringatan Teal / Error */}
-        {bannerNotice && (
-          <SoftBanner
-            type={bannerNotice.type}
-            title={bannerNotice.title}
-            message={bannerNotice.message}
-            actionButton={bannerNotice.actionButton}
-            onClose={() => setBannerNotice(null)}
-          />
+        {/* Error Notification Banner */}
+        {errorNotification && (
+          <div className="mx-4 p-3.5 rounded-2xl neu-inset bg-red-500/10 border border-red-500/20 flex items-center justify-between text-xs text-[var(--error)]">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span>{errorNotification}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setErrorNotification(null)}
+              className="text-xs font-bold hover:underline cursor-pointer ml-2"
+            >
+              Tutup
+            </button>
+          </div>
         )}
 
-        {/* 1) KEADAAN PILIH & ATUR */}
-        {appState === 'select' && (
-          <StateSelect
-            currentImage={loadedImage}
-            onImageSelected={handleImageSelected}
-            onClearImage={() => {
-              if (lastBlobUrlRef.current) {
-                try {
-                  URL.revokeObjectURL(lastBlobUrlRef.current);
-                } catch {}
-                lastBlobUrlRef.current = null;
-              }
-              setLoadedImage(null);
-              setResult(null);
-            }}
-            scale={scale}
-            onScaleChange={setScale}
-            limit4K={limit4K}
-            onLimit4KChange={setLimit4K}
-            allowExtremeResolution={allowExtremeResolution}
-            onAllowExtremeResolutionChange={setAllowExtremeResolution}
-            downloadFormat={downloadFormat}
-            onDownloadFormatChange={setDownloadFormat}
-            jpegQuality={jpegQuality}
-            onJpegQualityChange={setJpegQuality}
-            mode={mode}
-            onModeChange={setMode}
-            calculation={calculation}
-            customModelFile={customModelFile}
-            onCustomModelFileChange={setCustomModelFile}
-            isModelStored={isModelStored}
-            onClearModelStorage={handleClearModelStorage}
-            onModelStorageUpdated={refreshModelStorageStatus}
-          />
-        )}
+        {/* Main Content Area */}
+        <main className="px-4 pt-2">
+          {step === 1 && (
+            <div className="flex flex-col gap-4">
+              <ImageUploader
+                currentImage={loadedImage}
+                onImageSelected={handleImageSelected}
+                onClearImage={handleClearImage}
+              />
+              <div className="p-4 rounded-3xl neu-raised flex flex-col gap-2">
+                <span className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">
+                  Keunggulan SuperPixel
+                </span>
+                <ul className="text-[11px] text-[var(--text-secondary)] space-y-1.5 list-disc list-inside">
+                  <li><strong>Aman untuk iPhone & iPad</strong>: Pemrosesan petak bebas dari tab crash atau reload mendadak.</li>
+                  <li><strong>WebGPU & WASM</strong>: Akselerasi kartu grafis perangkat bila didukung.</li>
+                  <li><strong>100% Privat</strong>: Citra Anda tidak pernah meninggalkan perangkat.</li>
+                </ul>
+              </div>
+            </div>
+          )}
 
-        {/* 2) KEADAAN PROSES */}
-        {appState === 'process' && loadedImage && calculation && (
-          <StateProcess
-            previewUrl={loadedImage.previewUrl}
-            currentTile={progress.currentTile}
-            totalTiles={calculation.totalTiles}
-            tilesX={calculation.tilesX}
-            tilesY={calculation.tilesY}
-            percentage={progress.percentage}
-            statusText={progress.statusText}
-            elapsedSeconds={elapsedSeconds}
-            onCancel={() => setIsCancelModalOpen(true)}
-          />
-        )}
+          {step === 2 && loadedImage && (
+            <StateSelect
+              imageInfo={loadedImage}
+              scale={scale}
+              mode={mode}
+              limit4K={limit4K}
+              isModelCached={isModelCached}
+              onScaleChange={setScale}
+              onModeChange={setMode}
+              onLimit4KChange={setLimit4K}
+              onStart={handleStartProcess}
+              onReset={handleClearImage}
+            />
+          )}
 
-        {/* 3) KEADAAN HASIL */}
-        {appState === 'result' && result && loadedImage && calculation && (
-          <StateResult
-            originalUrl={loadedImage.previewUrl}
-            enhancedUrl={result.enhancedUrl}
-            originalWidth={loadedImage.width}
-            originalHeight={loadedImage.height}
-            enhancedWidth={result.width}
-            enhancedHeight={result.height}
-            effectiveScale={calculation.effectiveScale}
-            elapsedMs={result.elapsedMs}
-            mode={result.actualMode}
-            executionProvider={result.executionProvider}
-            format={downloadFormat}
-            estimatedSizeStr={estimatedSizeStr}
-            onReset={handleReset}
-          />
-        )}
-      </main>
+          {step === 3 && (
+            <StateProcessing
+              percentage={progressPct}
+              currentTile={currentTile}
+              totalTiles={totalTiles}
+              statusText={statusText}
+              phase={phase}
+              isDownloadingModel={isDownloadingModel}
+              downloadLoadedMb={downloadLoadedMb}
+              downloadTotalMb={downloadTotalMb}
+              onCancel={handleCancelProcess}
+            />
+          )}
 
-      {/* Floating Soft Action Bar (Bottom Safe Area) */}
-      <SoftActionBar
-        currentStep={currentStep}
-        isProcessing={isProcessing}
-        scale={scale}
-        downloadFormat={downloadFormat}
-        hasImage={!!loadedImage}
-        onStartProcess={handleStartProcess}
-        onDownload={handleDownload}
-      />
+          {step === 4 && loadedImage && resultUrl && resultBlob && (
+            <StateResult
+              originalImage={loadedImage}
+              resultUrl={resultUrl}
+              resultBlob={resultBlob}
+              outputWidth={outputWidth}
+              outputHeight={outputHeight}
+              effectiveScale={effectiveScale}
+              executionProvider={executionProvider}
+              elapsedMs={elapsedMs}
+              onReset={handleClearImage}
+            />
+          )}
+        </main>
+      </div>
+
+      {/* Footer */}
+      <footer className="mt-8 px-4 text-center">
+        <span className="text-[10px] text-[var(--text-secondary)] font-medium">
+          SuperPixel · Dijalankan sepenuhnya pada perangkat Anda tanpa server.
+        </span>
+      </footer>
     </div>
   );
 }
+export default App;
