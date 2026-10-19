@@ -114,6 +114,8 @@ export const StateResult: React.FC<StateResultProps> = ({
         afterUrl={resultUrl}
         beforeLabel={`Asli (${originalImage.width}×${originalImage.height})`}
         afterLabel={`Terskala (${outputWidth}×${outputHeight})`}
+        imageWidth={outputWidth}
+        imageHeight={outputHeight}
       />
 
       {/* Info Card */}
